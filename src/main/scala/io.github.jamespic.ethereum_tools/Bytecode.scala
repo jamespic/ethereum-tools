@@ -74,6 +74,8 @@ object Bytecode {
         case 0xf2 => CALLCODE
         case 0xf3 => RETURN
         case 0xf4 => DELEGATECALL
+        case 0xfd => REVERT
+        case 0xfe => INVALID
         case 0xff => SUICIDE
         case _ => UNKNOWN
       })
@@ -81,91 +83,94 @@ object Bytecode {
     }
     ops.result()
   }
+  case object STOP extends Bytecode(0, 0)
+  case object ADD extends Bytecode(2, 1)
+  case object MUL extends Bytecode(2, 1)
+  case object SUB extends Bytecode(2, 1)
+  case object DIV extends Bytecode(2, 1)
+  case object SDIV extends Bytecode(2, 1)
+  case object MOD extends Bytecode(2, 1)
+  case object SMOD extends Bytecode(2, 1)
+  case object ADDMOD extends Bytecode(3, 1)
+  case object MULMOD extends Bytecode(3, 1)
+  case object EXP extends Bytecode(2, 1)
+  case object SIGNEXTEND extends Bytecode(2, 1)
+  case object LT extends Bytecode(2, 1)
+  case object GT extends Bytecode(2, 1)
+  case object SLT extends Bytecode(2, 1)
+  case object SGT extends Bytecode(2, 1)
+  case object EQ extends Bytecode(2, 1)
+  case object ISZERO extends Bytecode(1, 1)
+  case object AND extends Bytecode(2, 1)
+  case object OR extends Bytecode(2, 1)
+  case object XOR extends Bytecode(2, 1)
+  case object NOT extends Bytecode(1, 1)
+  case object BYTE extends Bytecode(2, 1)
+  case object SHA3 extends Bytecode(2, 1)
+  case object ADDRESS extends Bytecode(0, 1)
+  case object BALANCE extends Bytecode(1, 1)
+  case object ORIGIN extends Bytecode(0, 1)
+  case object CALLER extends Bytecode(0, 1)
+  case object CALLVALUE extends Bytecode(0, 1)
+  case object CALLDATALOAD extends Bytecode(1, 1)
+  case object CALLDATASIZE extends Bytecode(0, 1)
+  case object CALLDATACOPY extends Bytecode(3, 0)
+  case object CODESIZE extends Bytecode(0, 1)
+  case object CODECOPY extends Bytecode(3, 0)
+  case object GASPRICE extends Bytecode(0, 1)
+  case object EXTCODESIZE extends Bytecode(1, 1)
+  case object EXTCODECOPY extends Bytecode(4, 0)
+  case object BLOCKHASH extends Bytecode(1, 1)
+  case object COINBASE extends Bytecode(0, 1)
+  case object TIMESTAMP extends Bytecode(0, 1)
+  case object NUMBER extends Bytecode(0, 1)
+  case object DIFFICULTY extends Bytecode(0, 1)
+  case object GASLIMIT extends Bytecode(0, 1)
+  case object POP extends Bytecode(1, 1)
+  case object MLOAD extends Bytecode(1, 1)
+  case object MSTORE extends Bytecode(2, 0)
+  case object MSTORE8 extends Bytecode(2, 0)
+  case object SLOAD extends Bytecode(1, 1)
+  case object SSTORE extends Bytecode(2, 0)
+  case object JUMP extends Bytecode(1, 0)
+  case object JUMPI extends Bytecode(2, 0)
+  case object PC extends Bytecode(0, 1)
+  case object MSIZE extends Bytecode(0, 1)
+  case object GAS extends Bytecode(0, 1)
+  case object JUMPDEST extends Bytecode(0, 0)
+  case class PUSH(length: Int, data: BigInt) extends Bytecode(0, 1) {
+    require(length <= 32)
+    override def toString = s"PUSH${length} ${data.toString(16)}"
+  }
+  object PUSH {
+    def apply(data: String): PUSH = PUSH((data.length + 1) / 2, BigInt(data, 16))
+    def apply(data: Seq[Byte]): PUSH = {
+      require(data.length <= 32)
+      PUSH(data.length, (BigInt(0) /: data)((acc, v) => acc * 256 + (v & 0xff)))
+    }
+  }
+  case class DUP(depth: Int) extends Bytecode(depth, depth + 1) {
+    require(0 < depth && depth <= 16)
+    override def toString = s"DUP$depth"
+  }
+  case class SWAP(depth: Int) extends Bytecode(depth + 1, depth + 1) {
+    require(0 < depth && depth <= 16)
+    override def toString = s"SWAP$depth"
+  }
+  case class LOG(topics: Int) extends Bytecode(topics + 2, 0) {
+    require(0 <= topics && topics <= 4)
+    override def toString = s"LOG$topics"
+  }
+  case object CREATE extends Bytecode(3, 1)
+  case object CALL extends Bytecode(7, 1)
+  case object CALLCODE extends Bytecode(7, 1)
+  case object REVERT extends Bytecode(2, 0)
+  case object INVALID extends Bytecode(0, 0)
+  case object RETURN extends Bytecode(2, 0)
+  case object DELEGATECALL extends Bytecode(6, 1)
+  case object SUICIDE extends Bytecode(1, 0)
+  case object UNKNOWN extends Bytecode(0, 0)
+
 }
 
 abstract sealed class Bytecode(val inputs: Int, val outputs: Int)
-case object STOP extends Bytecode(0, 0)
-case object ADD extends Bytecode(2, 1)
-case object MUL extends Bytecode(2, 1)
-case object SUB extends Bytecode(2, 1)
-case object DIV extends Bytecode(2, 1)
-case object SDIV extends Bytecode(2, 1)
-case object MOD extends Bytecode(2, 1)
-case object SMOD extends Bytecode(2, 1)
-case object ADDMOD extends Bytecode(3, 1)
-case object MULMOD extends Bytecode(3, 1)
-case object EXP extends Bytecode(2, 1)
-case object SIGNEXTEND extends Bytecode(2, 1)
-case object LT extends Bytecode(2, 1)
-case object GT extends Bytecode(2, 1)
-case object SLT extends Bytecode(2, 1)
-case object SGT extends Bytecode(2, 1)
-case object EQ extends Bytecode(2, 1)
-case object ISZERO extends Bytecode(1, 1)
-case object AND extends Bytecode(2, 1)
-case object OR extends Bytecode(2, 1)
-case object XOR extends Bytecode(2, 1)
-case object NOT extends Bytecode(1, 1)
-case object BYTE extends Bytecode(2, 1)
-case object SHA3 extends Bytecode(2, 1)
-case object ADDRESS extends Bytecode(0, 1)
-case object BALANCE extends Bytecode(1, 1)
-case object ORIGIN extends Bytecode(0, 1)
-case object CALLER extends Bytecode(0, 1)
-case object CALLVALUE extends Bytecode(0, 1)
-case object CALLDATALOAD extends Bytecode(1, 1)
-case object CALLDATASIZE extends Bytecode(0, 1)
-case object CALLDATACOPY extends Bytecode(3, 0)
-case object CODESIZE extends Bytecode(0, 1)
-case object CODECOPY extends Bytecode(3, 0)
-case object GASPRICE extends Bytecode(0, 1)
-case object EXTCODESIZE extends Bytecode(1, 1)
-case object EXTCODECOPY extends Bytecode(4, 0)
-case object BLOCKHASH extends Bytecode(1, 1)
-case object COINBASE extends Bytecode(0, 1)
-case object TIMESTAMP extends Bytecode(0, 1)
-case object NUMBER extends Bytecode(0, 1)
-case object DIFFICULTY extends Bytecode(0, 1)
-case object GASLIMIT extends Bytecode(0, 1)
-case object POP extends Bytecode(1, 1)
-case object MLOAD extends Bytecode(1, 1)
-case object MSTORE extends Bytecode(2, 0)
-case object MSTORE8 extends Bytecode(2, 0)
-case object SLOAD extends Bytecode(1, 1)
-case object SSTORE extends Bytecode(2, 0)
-case object JUMP extends Bytecode(1, 0)
-case object JUMPI extends Bytecode(2, 0)
-case object PC extends Bytecode(0, 1)
-case object MSIZE extends Bytecode(0, 1)
-case object GAS extends Bytecode(0, 1)
-case object JUMPDEST extends Bytecode(0, 0)
-case class PUSH(length: Int, data: BigInt) extends Bytecode(0, 1) {
-  require(length <= 32)
-  override def toString = s"PUSH${length} ${data.toString(16)}"
-}
-object PUSH {
-  def apply(data: String): PUSH = PUSH((data.length + 1) / 2, BigInt(data, 16))
-  def apply(data: Seq[Byte]): PUSH = {
-    require(data.length <= 32)
-    PUSH(data.length, (BigInt(0) /: data)((acc, v) => acc * 256 + (v & 0xff)))
-  }
-}
-case class DUP(depth: Int) extends Bytecode(depth, depth + 1) {
-  require(0 < depth && depth <= 16)
-  override def toString = s"DUP$depth"
-}
-case class SWAP(depth: Int) extends Bytecode(depth + 1, depth + 1) {
-  require(0 < depth && depth <= 16)
-  override def toString = s"SWAP$depth"
-}
-case class LOG(topics: Int) extends Bytecode(topics + 2, 0) {
-  require(0 <= topics && topics <= 4)
-  override def toString = s"LOG$topics"
-}
-case object CREATE extends Bytecode(3, 1)
-case object CALL extends Bytecode(7, 1)
-case object CALLCODE extends Bytecode(7, 1)
-case object RETURN extends Bytecode(2, 0)
-case object DELEGATECALL extends Bytecode(6, 1)
-case object SUICIDE extends Bytecode(1, 0)
-case object UNKNOWN extends Bytecode(0, 0)

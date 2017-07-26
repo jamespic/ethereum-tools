@@ -1,6 +1,7 @@
 package io.github.jamespic.ethereum_tools
 
 import org.scalatest.{FreeSpec, Matchers}
+import Bytecode._
 
 class BytecodeTest extends FreeSpec with Matchers {
   "Bytecode" - {
@@ -21,7 +22,7 @@ class BytecodeTest extends FreeSpec with Matchers {
         0x80, 0x81, 0x8f,
         0x90, 0x91, 0x9f,
         0xa0, 0xa1, 0xa4,
-        0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xff,
+        0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xfd, 0xfe, 0xff,
         0xef
       ) map (_.toByte))
       val opcodes = parsed map (_._2)
@@ -39,7 +40,7 @@ class BytecodeTest extends FreeSpec with Matchers {
         DUP(1), DUP(2), DUP(16),
         SWAP(1), SWAP(2), SWAP(16),
         LOG(0), LOG(1), LOG(4),
-        CREATE, CALL, CALLCODE, RETURN, DELEGATECALL, SUICIDE,
+        CREATE, CALL, CALLCODE, RETURN, DELEGATECALL, REVERT, INVALID, SUICIDE,
         UNKNOWN
       )
       opcodes should equal (expected)
