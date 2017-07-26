@@ -4,7 +4,7 @@ import org.scalatest.{FreeSpec, Matchers}
 
 class BytecodeTest extends FreeSpec with Matchers {
   "Bytecode" - {
-    "should parse some bytecode" in {
+    "should parse all bytecodes" in {
       val parsed = Bytecode.parse(Array(
         0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b,
         0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a,
@@ -13,7 +13,7 @@ class BytecodeTest extends FreeSpec with Matchers {
         0x40, 0x41, 0x42, 0x43, 0x44, 0x45,
         0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x5b,
         0x60, 0x32,
-        0x61, 0x32, 0x32,
+        0x61, 0x32, 0x33,
         0x7f, 0x32, 0x32, 0x32, 0x32, 0x32, 0x32, 0x32, 0x32,
               0x32, 0x32, 0x32, 0x32, 0x32, 0x32, 0x32, 0x32,
               0x32, 0x32, 0x32, 0x32, 0x32, 0x32, 0x32, 0x32,
@@ -24,6 +24,7 @@ class BytecodeTest extends FreeSpec with Matchers {
         0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xff,
         0xef
       ) map (_.toByte))
+      val opcodes = parsed map (_._2)
       val expected = Seq(
         STOP, ADD, MUL, SUB, DIV, SDIV, MOD, SMOD, ADDMOD, MULMOD, EXP, SIGNEXTEND,
         LT, GT, SLT, SGT, EQ, ISZERO, AND, OR, XOR, NOT, BYTE,
@@ -33,7 +34,7 @@ class BytecodeTest extends FreeSpec with Matchers {
         BLOCKHASH, COINBASE, TIMESTAMP, NUMBER, DIFFICULTY, GASLIMIT,
         POP, MLOAD, MSTORE, MSTORE8, SLOAD, SSTORE, JUMP, JUMPI, PC, MSIZE, GAS, JUMPDEST,
         PUSH(Array[Byte](0x32)),
-        PUSH(Array[Byte](0x32, 0x32)),
+        PUSH("3233"),
         PUSH(Array.fill[Byte](32)(0x32)),
         DUP(1), DUP(2), DUP(16),
         SWAP(1), SWAP(2), SWAP(16),
@@ -41,7 +42,16 @@ class BytecodeTest extends FreeSpec with Matchers {
         CREATE, CALL, CALLCODE, RETURN, DELEGATECALL, SUICIDE,
         UNKNOWN
       )
-      parsed should equal (expected)
+      opcodes should equal (expected)
+    }
+    "should preserve offsets" in {
+      Bytecode.parse(Array[Byte](
+        0x00, 0x61, 0x32, 0x33, 0x01
+      )) should equal (Seq(
+        0 -> STOP,
+        1 -> PUSH("3233"),
+        4 -> ADD
+      ))
     }
   }
 }

@@ -2,10 +2,10 @@ package io.github.jamespic.ethereum_tools
 
 object Bytecode {
   def parse(code: Array[Byte]) = {
-    val ops = Seq.newBuilder[Bytecode]
+    val ops = List.newBuilder[(Int, Bytecode)]
     var i = 0
     while (i < code.length) {
-      ops += ((code(i) & 0xff) match {
+      ops += i -> ((code(i) & 0xff) match {
         case 0x00 => STOP
         case 0x01 => ADD
         case 0x02 => MUL
@@ -139,9 +139,16 @@ case object PC extends Bytecode(0, 1)
 case object MSIZE extends Bytecode(0, 1)
 case object GAS extends Bytecode(0, 1)
 case object JUMPDEST extends Bytecode(0, 0)
-case class PUSH(data: Seq[Byte]) extends Bytecode(0, 1) {
-  require(data.length <= 32)
-  override def toString = s"PUSH${data.length} ${data.map(x => f"$x%2x").mkString}"
+case class PUSH(length: Int, data: BigInt) extends Bytecode(0, 1) {
+  require(length <= 32)
+  override def toString = s"PUSH${length} ${data.toString(16)}"
+}
+object PUSH {
+  def apply(data: String): PUSH = PUSH((data.length + 1) / 2, BigInt(data, 16))
+  def apply(data: Seq[Byte]): PUSH = {
+    require(data.length <= 32)
+    PUSH(data.length, (BigInt(0) /: data)((acc, v) => acc * 256 + (v & 0xff)))
+  }
 }
 case class DUP(depth: Int) extends Bytecode(depth, depth + 1) {
   require(0 < depth && depth <= 16)
