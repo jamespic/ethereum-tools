@@ -5,9 +5,36 @@ import scala.collection.immutable.SortedSet
 import io.github.jamespic.ethereum_tools._
 import Bytecode._
 
+sealed trait Block {
+  val address: Int
+  def exitPoint: ExitPoint
+}
+
+case class BasicBlock(address: Int, instructions: InstList, stackHeightDelta: Int, exitPoint: ExitPoint) extends Block {
+  override def toString =
+    f"Block ${address}%04x {\n" +
+      instructions.map(i => f"    ${i._1}%04x ${i._2}%s").mkString("\n") +
+    "\n} -> " + exitPoint + "\n\n"
+}
+
+case class FunctionBlock(address: Int, code: Block, inputs: Int, outputs: Int) extends Block {
+  assert(code.exitPoint match {
+    case FunctionReturn(`inputs`) |
+      WithEarlyFunctionReturn(`inputs`, Throw|FunctionReturn(`inputs`)) => true
+    case _ => false
+  })
+
+  override def toString =
+    f"function ${address}%04x (${inputs}%d inputs, ${outputs}%d outputs) {\n" +
+      code.toString.split("\n").map("    " + _).mkString("\n") +
+    "\n} -> " + exitPoint + "\n\n"
+
+  override def exitPoint: ExitPoint = code.exitPoint
+}
+
 object Block {
-  def identifyBasicBlocks(instructions: InstList): SortedSet[BasicBlock] = {
-    val result = SortedSet.newBuilder[BasicBlock]
+  def identifyBasicBlocks(instructions: InstList): SortedSet[Block] = {
+    val result = SortedSet.newBuilder[Block]
     var currentBlock = List.newBuilder[(Int, Bytecode)]
     var currentStack = StackState()
     var blockStart = -1
@@ -52,20 +79,6 @@ object Block {
     finishBlock(Halt)
     result.result()
   }
-}
 
-sealed trait Block {
-  val address: Int
-  def exitPoint: ExitPoint
-}
-
-object BasicBlock {
-  implicit val ordering: Ordering[BasicBlock] = Ordering.by(_.address)
-}
-
-case class BasicBlock(address: Int, instructions: InstList, stackHeightDelta: Int, exitPoint: ExitPoint) extends Block {
-  override def toString =
-    f"Block ${address}%04x {\n" +
-      instructions.map(i => f"    ${i._1}%04x ${i._2}%s").mkString("\n") +
-    "\n} -> " + exitPoint + "\n\n"
+  implicit def ordering[T <: Block]: Ordering[T] = Ordering.by(_.address)
 }

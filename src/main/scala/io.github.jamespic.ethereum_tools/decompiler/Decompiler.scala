@@ -7,7 +7,7 @@ import javax.xml.bind.DatatypeConverter
 import org.ethereum.util.blockchain.StandaloneBlockchain
 
 import io.github.jamespic.ethereum_tools.Bytecode
-import io.github.jamespic.ethereum_tools.decompiler.control_flow.Block
+import io.github.jamespic.ethereum_tools.decompiler.control_flow.{Block, ControlGraph, GraphRewriteRules}
 
 
 object Decompiler {
@@ -31,6 +31,11 @@ object Decompiler {
   def decompile(bytes: Array[Byte]) = {
     val instructions = Bytecode.parse(bytes)
     val blocks = Block.identifyBasicBlocks(instructions)
-    blocks.mkString("\n")
+    val controlGraph = ControlGraph(blocks)
+    val rewritten = GraphRewriteRules.rewrite(controlGraph)
+    if (!GraphRewriteRules.fullyRewritten(rewritten)) {
+      println("NOT FULLY REWRITTEN")
+    }
+    controlGraph
   }
 }
