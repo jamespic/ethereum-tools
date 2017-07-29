@@ -1,5 +1,5 @@
-package io.github.jamespic.ethereum_tools
+package io.github.jamespic
 
-package object decompiler {
+package object ethereum_tools {
   type InstList = List[(Int, Bytecode)]
 }

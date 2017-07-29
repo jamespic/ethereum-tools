@@ -3,7 +3,7 @@ package io.github.jamespic.ethereum_tools.decompiler.control_flow
 import io.github.jamespic.ethereum_tools._
 import Bytecode._
 /**
- * A relatively data flow model for control flow analysis - we want to
+ * A relatively simple data flow model for control flow analysis - we need to
  * distinguish jump dests that are either constant, passed on stack, or calculated.
  */
 case class StackState(vars: List[Expr] = Nil, thenIndex: Int = 0) {
@@ -22,9 +22,19 @@ case class StackState(vars: List[Expr] = Nil, thenIndex: Int = 0) {
   def push(exprs: Expr*): StackState = {
     (exprs :\ this)((exp, s) => s.copy(vars = exp :: s.vars))
   }
-  def progress(op: Bytecode) = op match {
-    case _ => ???
+  def progress(op: Bytecode): StackState = op match {
+    case PUSH(_, n) => push(ConstExpr(n))
+    case DUP(n) =>
+      val (vars, newStack) = pop(n)
+      newStack.push(vars.last +: vars: _*)
+    case SWAP(n) =>
+      val (vars :+ last, newStack) = pop(n + 1)
+      newStack.push(last +: vars: _*)
+    case _ =>
+      val (consumed, newStack) = pop(op.inputs)
+      newStack.push(Seq.fill(op.outputs)(CalculatedExpr): _*)
   }
+  def progress(instructions: InstList): StackState = (this /: instructions)(_ progress _._2)
   lazy val height = vars.length - thenIndex
 }
 

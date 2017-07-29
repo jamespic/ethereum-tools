@@ -3,3 +3,5 @@
 .ensime
 .ensime_cache/
 target/
+output/
+logs/

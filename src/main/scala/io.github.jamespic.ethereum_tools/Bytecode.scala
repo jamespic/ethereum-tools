@@ -1,5 +1,9 @@
 package io.github.jamespic.ethereum_tools
 
+abstract sealed class Bytecode(val inputs: Int, val outputs: Int) {
+  def opcodeSize = 1
+}
+
 object Bytecode {
   def parse(code: Array[Byte]) = {
     val ops = List.newBuilder[(Int, Bytecode)]
@@ -141,6 +145,7 @@ object Bytecode {
   case class PUSH(length: Int, data: BigInt) extends Bytecode(0, 1) {
     require(length <= 32)
     override def toString = s"PUSH${length} ${data.toString(16)}"
+    override def opcodeSize = length + 1
   }
   object PUSH {
     def apply(data: String): PUSH = PUSH((data.length + 1) / 2, BigInt(data, 16))
@@ -172,5 +177,3 @@ object Bytecode {
   case object UNKNOWN extends Bytecode(0, 0)
 
 }
-
-abstract sealed class Bytecode(val inputs: Int, val outputs: Int)
