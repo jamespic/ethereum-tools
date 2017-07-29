@@ -8,3 +8,9 @@ contract ForLoop {
     }
   }
 }
+
+contract Ternary {
+  function x(bool y) payable returns (int) {
+    return y ? 1 : 2;
+  }
+}

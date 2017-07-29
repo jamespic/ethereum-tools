@@ -22,7 +22,7 @@ object Decompiler {
           blockchain.getBlockchain().getRepository().getCode(contractAddress)
         } finally blockchain.getBlockchain().close()
       case Array("--bytecode", x) =>
-        val code = new String(Files.readAllBytes(Paths.get(x)), UTF_8)
+        val code = new String(Files.readAllBytes(Paths.get(x)), UTF_8).trim
         DatatypeConverter.parseHexBinary(code)
     }
     println(decompile(bytecode))

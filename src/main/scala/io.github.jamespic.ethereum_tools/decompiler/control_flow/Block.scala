@@ -10,7 +10,7 @@ sealed trait Block {
   def exitPoint: ExitPoint
 }
 
-case class BasicBlock(address: Int, instructions: InstList, stackHeightDelta: Int, exitPoint: ExitPoint) extends Block {
+case class BasicBlock(address: Int, instructions: InstList, stackChange: StackState, exitPoint: ExitPoint) extends Block {
   override def toString =
     f"Block ${address}%04x {\n" +
       instructions.map(i => f"    ${i._1}%04x ${i._2}%s").mkString("\n") +
@@ -41,7 +41,7 @@ object Block {
     def finishBlock(exitPoint: ExitPoint) = {
       var block = currentBlock.result()
       if (block.nonEmpty) {
-        result += BasicBlock(blockStart, block, currentStack.height, exitPoint)
+        result += BasicBlock(blockStart, block, currentStack, exitPoint)
       }
       currentBlock = List.newBuilder[(Int, Bytecode)]
       currentStack = StackState()
