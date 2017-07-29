@@ -66,7 +66,7 @@ class BlockSpec extends FreeSpec with Matchers {
         ), 0, Halt),
         BasicBlock(7, List(
           7 -> INVALID
-        ), 0, Halt),
+        ), 0, Throw),
         BasicBlock(8, List(
           8 -> PUSH("01"),
           10 -> PUSH("02"),
@@ -74,10 +74,10 @@ class BlockSpec extends FreeSpec with Matchers {
         ), 2, Halt),
         BasicBlock(13, List(
           13 -> REVERT
-        ), -2, Halt),
+        ), -2, Throw),
         BasicBlock(14, List(
           14 -> UNKNOWN
-        ), 0, Halt),
+        ), 0, Throw),
         BasicBlock(15, List(
           15 -> PUSH("01"),
           17 -> PUSH("00"),

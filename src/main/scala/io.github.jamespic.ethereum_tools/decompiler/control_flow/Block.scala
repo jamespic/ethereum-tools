@@ -30,8 +30,10 @@ object Block {
       currentStack = currentStack.progress(op)
 
       (op, stackHead) match {
-        case (STOP|RETURN|INVALID|REVERT|SUICIDE|UNKNOWN, _) =>
+        case (STOP|RETURN, _) =>
           finishBlock(Halt)
+        case (INVALID|REVERT|SUICIDE|UNKNOWN, _) =>
+          finishBlock(Throw)
         case (JUMP, StackVar(n)) =>
           finishBlock(FunctionReturn(n))
         case (JUMP, ConstExpr(n)) =>
@@ -67,12 +69,3 @@ case class BasicBlock(address: Int, instructions: InstList, stackHeightDelta: In
       instructions.map(i => f"    ${i._1}%04x ${i._2}%s").mkString("\n") +
     "\n} -> " + exitPoint + "\n\n"
 }
-
-sealed trait ExitPoint
-case class ConstJump(address: Int) extends ExitPoint {
-  override def toString = f"ConstJump($address%04x)"
-}
-case class FunctionReturn(depth: Int) extends ExitPoint
-case object CalculatedJump extends ExitPoint
-case object Halt extends ExitPoint
-case class ConditionalExit(trueExit: ExitPoint, falseExit: ExitPoint) extends ExitPoint
