@@ -19,6 +19,7 @@ object Block {
 
     }
     for ((i, op) <- instructions) {
+      if (op == JUMPDEST) finishBlock(ConstJump(i))
       var (stackHead, _) = currentStack.pop
       if (blockStart == -1) blockStart = i
       currentBlock += i -> op
