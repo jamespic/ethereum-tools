@@ -12,7 +12,10 @@ object Block {
     var currentStack = StackState()
     var blockStart = -1
     def finishBlock(exitPoint: ExitPoint) = {
-      result += BasicBlock(blockStart, currentBlock.result(), currentStack.height, exitPoint)
+      var block = currentBlock.result()
+      if (block.nonEmpty) {
+        result += BasicBlock(blockStart, block, currentStack.height, exitPoint)
+      }
       currentBlock = List.newBuilder[(Int, Bytecode)]
       currentStack = StackState()
       blockStart = -1
@@ -43,10 +46,7 @@ object Block {
         case _ => // Continue
       }
     }
-    val lastBlock = currentBlock.result()
-    if (lastBlock.nonEmpty) {
-      finishBlock(Halt)
-    }
+    finishBlock(Halt)
     result.result()
   }
 }
