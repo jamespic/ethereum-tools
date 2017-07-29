@@ -130,7 +130,7 @@ object Bytecode {
   case object NUMBER extends Bytecode(0, 1)
   case object DIFFICULTY extends Bytecode(0, 1)
   case object GASLIMIT extends Bytecode(0, 1)
-  case object POP extends Bytecode(1, 1)
+  case object POP extends Bytecode(1, 0)
   case object MLOAD extends Bytecode(1, 1)
   case object MSTORE extends Bytecode(2, 0)
   case object MSTORE8 extends Bytecode(2, 0)

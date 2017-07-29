@@ -23,6 +23,7 @@ object Block {
     }
     for ((i, op) <- instructions) {
       if (op == JUMPDEST) finishBlock(ConstJump(i))
+
       var (stackHead, _) = currentStack.pop
       if (blockStart == -1) blockStart = i
       currentBlock += i -> op
@@ -62,13 +63,15 @@ object BasicBlock {
 
 case class BasicBlock(address: Int, instructions: InstList, stackHeightDelta: Int, exitPoint: ExitPoint) extends Block {
   override def toString =
-    s"Block $address {\n" +
-      instructions.map(i => f"    ${i._1}% 5d ${i._2}%s").mkString("\n") +
+    f"Block ${address}%04x {\n" +
+      instructions.map(i => f"    ${i._1}%04x ${i._2}%s").mkString("\n") +
     "\n} -> " + exitPoint + "\n\n"
 }
 
 sealed trait ExitPoint
-case class ConstJump(address: Int) extends ExitPoint
+case class ConstJump(address: Int) extends ExitPoint {
+  override def toString = f"ConstJump($address%04x)"
+}
 case class FunctionReturn(depth: Int) extends ExitPoint
 case object CalculatedJump extends ExitPoint
 case object Halt extends ExitPoint

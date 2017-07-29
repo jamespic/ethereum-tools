@@ -48,8 +48,12 @@ class BlockSpec extends FreeSpec with Matchers {
         33 -> JUMPI,
 
         34 -> POP,
-        35 -> JUMPDEST,
-        36 -> POP
+        35 -> JUMP,
+
+        36 -> POP,
+
+        37 -> JUMPDEST,
+        38 -> POP
     )) should equal (SortedSet(
         BasicBlock(0, List(
           0 -> PUSH("0004"),
@@ -98,11 +102,15 @@ class BlockSpec extends FreeSpec with Matchers {
           33 -> JUMPI
         ), -2, FunctionReturn(2)),
         BasicBlock(34, List(
-          34 -> POP
-        ), -1, ConstJump(35)),
-        BasicBlock(35, List(
-          35 -> JUMPDEST,
+          34 -> POP,
+          35 -> JUMP
+        ), -2, FunctionReturn(2)),
+        BasicBlock(36, List(
           36 -> POP
+        ), -1, ConstJump(35)),
+        BasicBlock(37, List(
+          37 -> JUMPDEST,
+          38 -> POP
         ), -1, Halt)
       ))
     }

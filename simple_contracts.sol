@@ -1,4 +1,4 @@
-pragma solidity ^0.4.12;
+pragma solidity ^0.4.13;
 
 contract ForLoop {
   function a() internal {}
