@@ -14,3 +14,13 @@ contract Ternary {
     return y ? 1 : 2;
   }
 }
+
+contract SimpleIf {
+  function x(bool y) payable returns (int) {
+    if (y) {
+      return 1;
+    } else {
+      return 2;
+    }
+  }
+}

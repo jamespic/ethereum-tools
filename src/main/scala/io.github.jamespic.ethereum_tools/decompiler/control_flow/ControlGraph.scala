@@ -30,3 +30,7 @@ case class ControlGraph(blocks: SortedSet[Block]) {
     def unapplySeq(exitPoint: ExitPoint) = Some(exitBlocks(exitPoint).toSeq)
   }
 }
+
+object ControlGraph {
+  def apply(blocks: Block*): ControlGraph = ControlGraph(blocks.to[SortedSet])
+}

@@ -107,5 +107,36 @@ class StackStateSpec extends FreeSpec with Matchers {
         )
       }
     }
+    "the & operator" - {
+      "should combine compatible elements from two merged stacks" in {
+        val stack1 = StackState(
+          List(
+            StackVar(3),
+            ConstExpr(3),
+            StackVar(2),
+            CalculatedExpr,
+            StackVar(1)
+          ), 2
+        )
+        val stack2 = StackState(
+          List(
+            StackVar(2),
+            ConstExpr(3),
+            StackVar(2),
+            StackVar(0)
+          ), 1
+        )
+        val result = stack1 & stack2
+        result should equal (StackState(
+          List(
+            CalculatedExpr,
+            ConstExpr(3),
+            StackVar(2),
+            CalculatedExpr,
+            StackVar(1)
+          ), 2
+        ))
+      }
+    }
   }
 }

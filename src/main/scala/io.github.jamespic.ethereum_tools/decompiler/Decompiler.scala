@@ -36,6 +36,6 @@ object Decompiler {
     if (!GraphRewriteRules.fullyRewritten(rewritten)) {
       println("NOT FULLY REWRITTEN")
     }
-    controlGraph
+    rewritten
   }
 }

@@ -23,21 +23,16 @@ case class ConditionalExit(trueExit: SingleReturn, falseExit: SingleReturn) exte
 
 case class WithEarlyFunctionReturn(depth: Int, wrapped: ExitPoint) extends EarlyReturnWrapper {
   def canWrap(exitPoint: ExitPoint): Boolean = exitPoint match {
-    case ConstJump(_)|FunctionReturn(`depth`)|CalculatedJump|Throw => true
-    case FunctionReturn(_) => false
-    case Halt => false
-    case ConditionalExit(trueExit, falseExit) => canWrap(trueExit) && canWrap(falseExit)
-    case _: EarlyReturnWrapper => false
+    case ReturnSafety(AnyReturn|FunctionReturnOnly(`depth`)) => true
+    case _ => false
   }
   assert(canWrap(wrapped))
 }
 
 case class WithEarlyContractReturn(wrapped: ExitPoint) extends EarlyReturnWrapper {
   def canWrap(exitPoint: ExitPoint): Boolean = exitPoint match {
-    case ConstJump(_)|Halt|CalculatedJump|Throw => true
-    case FunctionReturn(_) => false
-    case ConditionalExit(trueExit, falseExit) => canWrap(trueExit) && canWrap(falseExit)
-    case _: EarlyReturnWrapper => false
+    case ReturnSafety(AnyReturn|ContractReturnOnly) => true
+    case _ => false
   }
   assert(canWrap(wrapped))
 }
@@ -70,24 +65,83 @@ object ExitPoint {
     case (x, e @ WithEarlyFunctionReturn(d, y)) if e.canWrap(x) =>
       unify(x, y) map wrapEarlyFunctionReturn(d)
 
-    case (x @ (ConstJump(_)|ConditionalExit(_, _)), Halt) =>
+    case (x @ ReturnSafety(ContractReturnOnly|AnyReturn), Halt) =>
       Some(WithEarlyContractReturn(x))
-    case (Halt, x @ (ConstJump(_)|ConditionalExit(_, _))) =>
+    case (Halt, x @ ReturnSafety(ContractReturnOnly|AnyReturn)) =>
       Some(WithEarlyContractReturn(x))
 
-    case (x @ (ConstJump(_)|ConditionalExit(_, _)), FunctionReturn(d)) =>
+    case (x @ ReturnSafety(AnyReturn), FunctionReturn(d)) =>
       Some(WithEarlyFunctionReturn(d, x))
-    case (FunctionReturn(d), x @ (ConstJump(_)|ConditionalExit(_, _))) =>
+    case (x @ ReturnSafety(FunctionReturnOnly(d1)), FunctionReturn(d2)) if d1 == d2 =>
+      Some(WithEarlyFunctionReturn(d2, x))
+    case (FunctionReturn(d), x @ ReturnSafety(AnyReturn)) =>
       Some(WithEarlyFunctionReturn(d, x))
+    case (FunctionReturn(d1), x @ ReturnSafety(FunctionReturnOnly(d2))) if d1 == d2 =>
+      Some(WithEarlyFunctionReturn(d1, x))
 
     case _ => None
   }
-  private def wrapEarlyContractReturn(e: ExitPoint) = e match {
-    case WithEarlyContractReturn(inner) => e
+  def wrapEarlyContractReturn(e: ExitPoint) = e match {
+    case WithEarlyContractReturn(_)|Halt => e
     case _ => WithEarlyContractReturn(e)
   }
-  private def wrapEarlyFunctionReturn(d: Int)(e: ExitPoint) = e match {
-    case WithEarlyFunctionReturn(`d`, inner) => e
+  def wrapEarlyFunctionReturn(d: Int)(e: ExitPoint) = e match {
+    case WithEarlyFunctionReturn(`d`, _)|FunctionReturn(`d`) => e
     case _ => WithEarlyFunctionReturn(d, e)
   }
+
+  def fixUpReturnDepth(exitPoint: ExitPoint, stack: StackState): Option[ExitPoint] = exitPoint match {
+    case ConstJump(_)|CalculatedJump|Halt|Throw|WithEarlyContractReturn(_) => Some(exitPoint)
+    case FunctionReturn(depth) =>
+      stack(depth) match {
+        case ConstExpr(n) => Some(ConstJump(n.toInt))
+        case StackVar(d) => Some(FunctionReturn(d))
+        case CalculatedExpr => Some(CalculatedJump)
+      }
+    case WithEarlyFunctionReturn(depth, wrapped) =>
+      for {
+        fixedReturn <- fixUpReturnDepth(FunctionReturn(depth), stack)
+        fixedWrapped <- fixUpReturnDepth(wrapped, stack)
+        result <- unify(fixedReturn, fixedWrapped)
+      } yield result
+    case ConditionalExit(trueExit, falseExit) =>
+      for {
+        fixedTrue <- fixUpReturnDepth(trueExit, stack)
+        fixedFalse <- fixUpReturnDepth(falseExit, stack)
+        (checkedFixedTrue: SingleReturn, checkedFixedFalse: SingleReturn) = (fixedTrue, fixedFalse)
+      } yield ConditionalExit(checkedFixedTrue, checkedFixedFalse)
+  }
 }
+
+object ReturnSafety {
+  def unapply(exitPoint: ExitPoint): Option[ReturnSafety] = exitPoint match {
+    case ConstJump(_)|Throw => Some(AnyReturn)
+    case ConditionalExit(
+      ReturnSafety(AnyReturn),
+      ReturnSafety(AnyReturn)
+    ) => Some(AnyReturn)
+    case Halt|ConditionalExit(
+      ReturnSafety(AnyReturn|ContractReturnOnly),
+      ReturnSafety(AnyReturn|ContractReturnOnly)
+    ) => Some(ContractReturnOnly)
+    case ConditionalExit(
+      ReturnSafety(AnyReturn),
+      ReturnSafety(FunctionReturnOnly(n))
+    ) => Some(FunctionReturnOnly(n))
+    case ConditionalExit(
+      ReturnSafety(FunctionReturnOnly(n)),
+      ReturnSafety(AnyReturn)
+    ) => Some(FunctionReturnOnly(n))
+    case ConditionalExit(
+      ReturnSafety(FunctionReturnOnly(n)),
+      ReturnSafety(FunctionReturnOnly(m))
+    ) if m == n => Some(FunctionReturnOnly(n))
+    case FunctionReturn(n) => Some(FunctionReturnOnly(n))
+    case _ => None  // CalculatedJump, and any unsafe ConditionalExit combinations
+  }
+}
+
+sealed trait ReturnSafety
+case object ContractReturnOnly extends ReturnSafety
+case object AnyReturn extends ReturnSafety
+case class FunctionReturnOnly(depth: Int) extends ReturnSafety

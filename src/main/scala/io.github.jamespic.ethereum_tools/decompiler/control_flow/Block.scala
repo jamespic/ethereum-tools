@@ -27,6 +27,24 @@ case class IfBlock(address: Int, decisionBlock: Block, trueBlock: Block, stackCh
     "\n} -> " + exitPoint + "\n\n"
 }
 
+case class UnlessBlock(address: Int, decisionBlock: Block, falseBlock: Block, stackChange: StackState, exitPoint: ExitPoint) extends Block {
+  override def toString =
+    f"unless ${address}%04x  {\n" +
+      Block.printIndented(decisionBlock)
+    "\n} {\n" +
+      Block.printIndented(falseBlock)
+    "\n} -> " + exitPoint + "\n\n"
+}
+
+case class PassThroughBlock(address: Int, block1: Block, block2: Block, stackChange: StackState, exitPoint: ExitPoint) extends Block {
+  override def toString =
+    f"passthrough ${address}%04x  {\n" +
+      Block.printIndented(block1)
+    "\n} {\n" +
+      Block.printIndented(block2)
+    "\n} -> " + exitPoint + "\n\n"
+}
+
 case class FunctionBlock(address: Int, code: Block, inputs: Int, outputs: Int) extends Block {
   assert(code.exitPoint match {
     case FunctionReturn(`inputs`) |

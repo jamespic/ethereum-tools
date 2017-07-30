@@ -55,6 +55,14 @@ class ExitPointSpec extends FreeSpec with Matchers {
         unifying(WithEarlyContractReturn(ConstJump(2)), WithEarlyContractReturn(ConstJump(4))).shouldFail
         unifying(WithEarlyFunctionReturn(4, ConstJump(2)), WithEarlyFunctionReturn(4, ConstJump(4))).shouldFail
       }
+      "should refuse to unify function return incompatible exit points even in conditional jumps" in {
+        unifying(FunctionReturn(2), ConditionalExit(Halt, ConstJump(4))).shouldFail
+        unifying(WithEarlyFunctionReturn(2, ConstJump(4)), ConditionalExit(Halt, ConstJump(4))).shouldFail
+      }
+      "should refuse to unify contract return incompatible exit points even in conditional jumps" in {
+        unifying(Halt, ConditionalExit(FunctionReturn(2), ConstJump(4))).shouldFail
+        unifying(WithEarlyContractReturn(ConstJump(4)), ConditionalExit(FunctionReturn(2), ConstJump(4))).shouldFail
+      }
     }
   }
 }
