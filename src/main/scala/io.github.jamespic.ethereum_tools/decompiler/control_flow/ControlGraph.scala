@@ -7,7 +7,9 @@ case class ControlGraph(blocks: SortedSet[Block]) {
     val exitBlockMapping = for (
       block <- blocks; exitBlock <- exitBlocks(block.exitPoint)
     ) yield (exitBlock, block)
-    exitBlockMapping.groupBy(_._1.address).mapValues(kvPairs => kvPairs.map(_._2))
+    val foundParents = exitBlockMapping.groupBy(_._1.address).mapValues(kvPairs => kvPairs.map(_._2))
+    val defaults = blocks.map(b => b.address -> SortedSet.empty[Block]).toMap
+    defaults ++ foundParents
   }
 
   lazy val blockByAddress: Map[Int, Block] = {
@@ -16,11 +18,15 @@ case class ControlGraph(blocks: SortedSet[Block]) {
 
   def exitBlocks(exitPoint: ExitPoint): Set[Block] = exitPoint match {
     case ConstJump(n) => Set(blockByAddress(n))
-    case FunctionReturn(_)|Halt|Throw => Set.empty[Block]
+    case FunctionReturn(_)|Halt|Throw => Set.empty
     case ConditionalExit(trueExit, falseExit) => exitBlocks(trueExit) ++ exitBlocks(falseExit)
     case EarlyReturnWrapper(wrapped) => exitBlocks(wrapped)
-    case CalculatedJump => ???
+    case CalculatedJump => Set.empty
   }
 
   override def toString = blocks.mkString("\n")
+
+  object ExitBlock {
+    def unapplySeq(exitPoint: ExitPoint) = Some(exitBlocks(exitPoint).toSeq)
+  }
 }

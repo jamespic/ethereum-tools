@@ -65,5 +65,47 @@ class StackStateSpec extends FreeSpec with Matchers {
         )
       }
     }
+    "apply" - {
+      "should get a variable from the stack" in {
+        StackState(List(ConstExpr(5), ConstExpr(4)), 4)(1) should equal(ConstExpr(4))
+      }
+      "should fill in stack vars beyond the end of the list" in {
+        StackState(List(ConstExpr(5), ConstExpr(4)), 4)(4) should equal(StackVar(6))
+      }
+    }
+    "the |> operator" - {
+      "should map values from an old stack onto a new one" in {
+        val stack1 = StackState(
+          List(
+            StackVar(0),
+            ConstExpr(1),
+            CalculatedExpr,
+            StackVar(0)
+          ),
+          4
+        )
+        val stack2 = StackState(
+          List(
+            ConstExpr(3),
+            StackVar(1),
+            StackVar(0)
+          ),
+          2
+        )
+        val result = stack1 >> stack2
+        result should equal(
+          StackState(
+            List(
+              ConstExpr(3),
+              ConstExpr(1),
+              StackVar(0),
+              CalculatedExpr,
+              StackVar(0)
+            ),
+            4
+          )
+        )
+      }
+    }
   }
 }

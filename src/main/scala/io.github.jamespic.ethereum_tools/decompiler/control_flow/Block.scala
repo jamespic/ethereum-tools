@@ -8,6 +8,7 @@ import Bytecode._
 sealed trait Block {
   val address: Int
   def exitPoint: ExitPoint
+  def stackChange: StackState
 }
 
 case class BasicBlock(address: Int, instructions: InstList, stackChange: StackState, exitPoint: ExitPoint) extends Block {
@@ -17,19 +18,30 @@ case class BasicBlock(address: Int, instructions: InstList, stackChange: StackSt
     "\n} -> " + exitPoint + "\n\n"
 }
 
+case class IfBlock(address: Int, decisionBlock: Block, trueBlock: Block, stackChange: StackState, exitPoint: ExitPoint) extends Block {
+  override def toString =
+    f"if ${address}%04x  {\n" +
+      Block.printIndented(decisionBlock)
+    "\n} {\n" +
+      Block.printIndented(trueBlock)
+    "\n} -> " + exitPoint + "\n\n"
+}
+
 case class FunctionBlock(address: Int, code: Block, inputs: Int, outputs: Int) extends Block {
   assert(code.exitPoint match {
     case FunctionReturn(`inputs`) |
       WithEarlyFunctionReturn(`inputs`, Throw|FunctionReturn(`inputs`)) => true
     case _ => false
   })
+  assert(code.stackChange.height == outputs - inputs)
 
   override def toString =
     f"function ${address}%04x (${inputs}%d inputs, ${outputs}%d outputs) {\n" +
       code.toString.split("\n").map("    " + _).mkString("\n") +
     "\n} -> " + exitPoint + "\n\n"
 
-  override def exitPoint: ExitPoint = code.exitPoint
+  override def exitPoint: ExitPoint = FunctionReturn(inputs)
+  override def stackChange = code.stackChange
 }
 
 object Block {
@@ -81,4 +93,9 @@ object Block {
   }
 
   implicit def ordering[T <: Block]: Ordering[T] = Ordering.by(_.address)
+  private[control_flow] def printIndented(code: Any) = {
+    code.toString.split("\n").map("    " + _).mkString("\n")
+  }
+
+  def unapply(block: Block) = Some((block.address, block.exitPoint))
 }
