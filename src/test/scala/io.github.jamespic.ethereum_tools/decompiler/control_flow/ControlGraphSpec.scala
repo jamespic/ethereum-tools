@@ -9,7 +9,7 @@ import Bytecode._
 
 
 class ControlGraphSpec extends FreeSpec with Matchers {
-  def fakeBlock(address: Int, exitPoint: ExitPoint) = new BasicBlock(address, Nil, StackState(), exitPoint)
+  def fakeBlock(address: Int, exitPoint: ExitPoint) = new BasicBlock(address, Nil, BlockEnd(exitPoint, StackState()))
   val instance = ControlGraph(SortedSet[Block](
     fakeBlock(0, ConstJump(4)),
     fakeBlock(4, ConditionalExit(ConstJump(4), FunctionReturn(2))),

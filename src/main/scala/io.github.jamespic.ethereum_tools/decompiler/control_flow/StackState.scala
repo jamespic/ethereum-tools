@@ -49,33 +49,9 @@ case class StackState(vars: List[Expr] = Nil, thenIndex: Int = 0) {
 
   def progress(instructions: InstList): StackState = (this /: instructions)(_ progress _._2)
 
-  private def ensureDepth(n: Int) = {
+  def ensureDepth(n: Int) = {
     val (vars, newStack) = pop(n)
     newStack.push(vars: _*)
-  }
-
-  def >>(that: StackState): StackState = {
-    // Ensure new stack is deep enough
-    val minDepth = this.vars.length + that.vars.length - that.thenIndex
-    val newThat = that.ensureDepth(minDepth)
-    val newVars = newThat.vars map {
-      case StackVar(n) => this(n)
-      case x => x
-    }
-    val newThenNext = this.thenIndex + newThat.thenIndex - this.vars.length
-    StackState(newVars, newThenNext)
-  }
-
-  def =~(that: StackState) = this.height == that.height
-  def &(that: StackState) = {
-    val minDepth = Math.max(this.vars.length, that.vars.length)
-    val newThis = this.ensureDepth(minDepth)
-    val newThat = that.ensureDepth(minDepth)
-    assert(newThis.thenIndex == newThat.thenIndex)
-    val newVars = for ((x, y) <- newThis.vars zip newThat.vars) yield {
-      if (x == y) x else CalculatedExpr
-    }
-    StackState(newVars, newThis.thenIndex)
   }
 
   lazy val height = vars.length - thenIndex

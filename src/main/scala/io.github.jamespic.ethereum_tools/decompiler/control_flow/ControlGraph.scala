@@ -27,7 +27,8 @@ case class ControlGraph(blocks: SortedSet[Block]) {
   override def toString = blocks.mkString("\n")
 
   object ExitBlock {
-    def unapplySeq(exitPoint: ExitPoint) = Some(exitBlocks(exitPoint).toSeq)
+    def unapplySeq(exitPoint: ExitPoint): Option[Seq[Block]] = Some(exitBlocks(exitPoint).toSeq)
+    def unapplySeq(blockEnd: BlockEnd): Option[Seq[Block]] = unapplySeq(blockEnd.exitPoint)
   }
 }
 

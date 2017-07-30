@@ -10,7 +10,7 @@ object GraphRewriteRules {
   def tryUnsafeRewrites(graph: ControlGraph): Stream[ControlGraph] = Stream()
   def rewrite(graph: ControlGraph): ControlGraph = doSafeRewrites(graph)
   def fullyRewritten(graph: ControlGraph, entryPoint: Int = 0) = graph.blocks forall {
-    case BasicBlock(`entryPoint`, _, _, Halt) => true
+    case BasicBlock(`entryPoint`, _, BlockEnd(Halt, _)) => true
     case _: FunctionBlock => true
     case _ => false
   }
@@ -25,75 +25,71 @@ object GraphRewriteRules {
     if (graph.blocks.exists(_.exitPoint == CalculatedJump)) None
     else {
       val hasDanglingFunctionReturns = graph.blocks.exists {
-        case Block(_, FunctionReturn(_)|WithEarlyFunctionReturn(_, _)) => true
+        case Block(_, BlockEnd((FunctionReturn(_)|WithEarlyFunctionReturn(_, _)), _)) => true
         case _ => false
       }
       val reachableBlocks = (
         (graph.blocks flatMap (block => graph.exitBlocks(block.exitPoint)))
         ++ (
-          if (hasDanglingFunctionReturns) {
-            // Be conservative and treat any const on a stack as a jump dest
-            for {
-              block <- graph.blocks
-              ConstExpr(n) <- block.stackChange.vars
-              reachedBlock <- graph.blockByAddress.get(n.toInt)
-            } yield reachedBlock
-          } else Set()
+          // Be conservative and treat any const on a stack as a function return dest
+          if (hasDanglingFunctionReturns) findJumpableBlocks(graph)
+          else Set()
         ) + graph.blockByAddress(0))
       if (reachableBlocks != graph.blocks) Some(ControlGraph(reachableBlocks))
       else None
     }
   }
 
+  private def findJumpableBlocks(graph: ControlGraph) = for {
+    block <- graph.blocks
+    ConstExpr(n) <- block.stackChange.vars
+    reachedBlock <- graph.blockByAddress.get(n.toInt)
+  } yield reachedBlock
+
   def findIfRewrite(graph: ControlGraph): Option[ControlGraph] = {
     graph.blocks collectFirst {
       // Simple If block
-      case a @ Block(newAddress @ address,
-        ConditionalExit(
-          graph.ExitBlock(b @ Block(adress, exitB)),
+      case a @ Block(
+        newAddress @ address,
+        BlockEnd(ConditionalExit(
+          graph.ExitBlock(b @ Block(_, endB)),
           exitA
-        )
-      ) if (exitA =~ exitB) && (a.stackChange =~ a.stackChange >> b.stackChange) =>
-        val newBlock = IfBlock(newAddress, a, b, a.stackChange & a.stackChange >> b.stackChange, exitA & exitB)
+        ), stackA)
+
+      ) if (BlockEnd(exitA, stackA) =~> endB) && (BlockEnd(exitA, stackA) =~ (BlockEnd(exitA, stackA) >> endB)) =>
+        val newBlock = IfBlock(newAddress, a, b, BlockEnd(exitA, stackA) & BlockEnd(exitA, stackA) >> endB)
         ControlGraph(graph.blocks - a - b + newBlock)
     }
   }
 
   def findUnlessRewrite(graph: ControlGraph): Option[ControlGraph] = {
     graph.blocks collectFirst {
-      // Simple Unless block
-      case a @ Block(newAddress @ address,
-        ConditionalExit(
+      // Simple If block
+      case a @ Block(
+        newAddress @ address,
+        BlockEnd(ConditionalExit(
           exitA,
-          graph.ExitBlock(b @ Block(adress, exitB))
-        )
-      ) if (exitA =~ exitB) && (a.stackChange =~ a.stackChange >> b.stackChange) =>
-        val newBlock = UnlessBlock(newAddress, a, b, a.stackChange & a.stackChange >> b.stackChange, exitA & exitB)
+          graph.ExitBlock(b @ Block(_, endB))
+        ), stackA)
+
+      ) if (BlockEnd(exitA, stackA) =~ endB) =>
+        val newBlock = UnlessBlock(newAddress, a, b, BlockEnd(exitA, stackA) & BlockEnd(exitA, stackA) >> endB)
         ControlGraph(graph.blocks - a - b + newBlock)
     }
   }
+
 
   def findPassthroughRewrite(graph: ControlGraph): Option[ControlGraph] = {
     val graphStream = for {
       a @ Block(
         addressA,
-        exitA @ graph.ExitBlock(
-          b @ Block(addressB, exitB)
+        endA @ graph.ExitBlock(
+          b @ Block(addressB, endB)
         )
       ) <- graph.blocks.toStream
       if graph.parents(b.address) == Set(a)
-      Some(fixedExitB) = ExitPoint.fixUpReturnDepth(exitB, a.stackChange)
-      Some(exitPoint) = (exitA, exitB) match {
-        case (ReturnSafety(AnyReturn), _) => Some(exitB)
-        case (ReturnSafety(ContractReturnOnly), ReturnSafety(AnyReturn|ContractReturnOnly)) =>
-          Some(ExitPoint.wrapEarlyContractReturn(exitB))
-        case (ReturnSafety(FunctionReturnOnly(depth)), ReturnSafety(AnyReturn)) =>
-          Some(ExitPoint.wrapEarlyFunctionReturn(depth)(exitB))
-        case (ReturnSafety(FunctionReturnOnly(depth)), ReturnSafety(FunctionReturnOnly(depth2))) if depth == depth2 =>
-          Some(ExitPoint.wrapEarlyFunctionReturn(depth)(exitB))
-        case _ => None
-      }
-      newBlock: Block = PassThroughBlock(addressA, a, b, a.stackChange >> b.stackChange, exitPoint)
+      Some(blockEnd) = endA chain endB
+      newBlock: Block = PassThroughBlock(addressA, a, b, blockEnd)
     } yield ControlGraph(graph.blocks - a - b + newBlock)
     graphStream.headOption
   }

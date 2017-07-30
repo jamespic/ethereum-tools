@@ -7,27 +7,28 @@ class GraphRewriteRulesSpec extends FreeSpec with Matchers {
   "GraphRewriteRules" - {
     "findIfRewrite" - {
       "should rewrite simple if blocks" in {
-        val graph = ControlGraph(
-          BasicBlock(0, Nil, StackState(), ConditionalExit(ConstJump(1), ConstJump(2))),
-          BasicBlock(1, Nil, StackState(), ConstJump(2)),
-          BasicBlock(2, Nil, StackState(), Halt)
-        )
+        val a = BasicBlock(0, Nil, BlockEnd(ConditionalExit(ConstJump(1), ConstJump(2)), StackState()))
+        val b = BasicBlock(1, Nil, BlockEnd(ConstJump(2), StackState()))
+        val c = BasicBlock(2, Nil, BlockEnd(Halt, StackState()))
+        val graph = ControlGraph(a, b, c)
         val rewritten = findIfRewrite(graph)
         rewritten should equal (Some(
           ControlGraph(
             IfBlock(0,
-              BasicBlock(0, Nil, StackState(), ConditionalExit(ConstJump(1), ConstJump(2))),
-              BasicBlock(1, Nil, StackState(), ConstJump(2)),
-              StackState(),
-              ConstJump(2)
+              a,
+              b,
+              BlockEnd(
+                ConstJump(2),
+                StackState()
+              )
             ),
-            BasicBlock(2, Nil, StackState(), Halt)
+            c
           )
         ))
       }
       "should fix up return addresses" in {
-        val a = BasicBlock(0, Nil, StackState(List(ConstExpr(1))), ConditionalExit(ConstJump(1), FunctionReturn(1)))
-        val b = BasicBlock(1, Nil, StackState(), FunctionReturn(2))
+        val a = BasicBlock(0, Nil, BlockEnd(ConditionalExit(ConstJump(1), FunctionReturn(1)), StackState(List(ConstExpr(1)))))
+        val b = BasicBlock(1, Nil, BlockEnd(FunctionReturn(2), StackState()))
 
         val graph = ControlGraph(
           a, b
@@ -38,8 +39,10 @@ class GraphRewriteRulesSpec extends FreeSpec with Matchers {
             IfBlock(0,
               a,
               b,
-              StackState(List(ConstExpr(1))),
-              FunctionReturn(1)
+              BlockEnd(
+                FunctionReturn(1),
+                StackState(List(ConstExpr(1)))
+              )
             )
           )
         ))
@@ -47,21 +50,22 @@ class GraphRewriteRulesSpec extends FreeSpec with Matchers {
     }
     "findUnlessRewrite" - {
       "should rewrite simple unless blocks" in {
-        val graph = ControlGraph(
-          BasicBlock(0, Nil, StackState(), ConditionalExit(ConstJump(2), ConstJump(1))),
-          BasicBlock(1, Nil, StackState(), ConstJump(2)),
-          BasicBlock(2, Nil, StackState(), Halt)
-        )
+        val a = BasicBlock(0, Nil, BlockEnd(ConditionalExit(ConstJump(2), ConstJump(1)), StackState()))
+        val b = BasicBlock(1, Nil, BlockEnd(ConstJump(2), StackState()))
+        val c = BasicBlock(2, Nil, BlockEnd(Halt, StackState()))
+        val graph = ControlGraph(a, b, c)
         val rewritten = findUnlessRewrite(graph)
         rewritten should equal (Some(
           ControlGraph(
             UnlessBlock(0,
-              BasicBlock(0, Nil, StackState(), ConditionalExit(ConstJump(2), ConstJump(1))),
-              BasicBlock(1, Nil, StackState(), ConstJump(2)),
-              StackState(),
-              ConstJump(2)
+              a,
+              b,
+              BlockEnd(
+                ConstJump(2),
+                StackState()
+              )
             ),
-            BasicBlock(2, Nil, StackState(), Halt)
+            c
           )
         ))
       }
