@@ -5,9 +5,8 @@ case class BlockEnd(exitPoint: ExitPoint = ConstJump(0), stackState: StackState 
   def merge(that: BlockEnd) = BlockEnd.merge(this, that)
   def &(that: BlockEnd) = BlockEnd.merge(this, that).get
 
-  def =~>(that: BlockEnd) = BlockEnd.chain(this, that).nonEmpty
   def chain(that: BlockEnd) = BlockEnd.chain(this, that)
-  def >>(that: BlockEnd) = BlockEnd.chain(this, that).get
+  def >>(that: BlockEnd) = BlockEnd.chain(this, that)
 }
 
 object BlockEnd {
@@ -37,37 +36,12 @@ object BlockEnd {
     case (x , Throw) => Some(x)
     case (Throw, x) => Some(x)
 
-    case (WithEarlyContractReturn(x), WithEarlyContractReturn(y)) =>
-      unifyExitPoints(x, y) map ExitPoint.wrapEarlyContractReturn
-    case (e @ WithEarlyContractReturn(x), y) if e.canWrap(y) =>
-      unifyExitPoints(x, y) map ExitPoint.wrapEarlyContractReturn
-    case (x, e @ WithEarlyContractReturn(y)) if e.canWrap(x) =>
-      unifyExitPoints(x, y) map ExitPoint.wrapEarlyContractReturn
-
-    case (WithEarlyFunctionReturn(d1, x), WithEarlyFunctionReturn(d2, y)) if d1 == d2 =>
-      unifyExitPoints(x, y) map ExitPoint.wrapEarlyFunctionReturn(d1)
-    case (e @ WithEarlyFunctionReturn(d, x), y) if e.canWrap(y) =>
-      unifyExitPoints(x, y) map ExitPoint.wrapEarlyFunctionReturn(d)
-    case (x, e @ WithEarlyFunctionReturn(d, y)) if e.canWrap(x) =>
-      unifyExitPoints(x, y) map ExitPoint.wrapEarlyFunctionReturn(d)
-
-    case (x @ ReturnSafety(ContractReturnOnly|AnyReturn), Halt) =>
-      Some(ExitPoint.wrapEarlyContractReturn(x))
-    case (Halt, x @ ReturnSafety(ContractReturnOnly|AnyReturn)) =>
-      Some(ExitPoint.wrapEarlyContractReturn(x))
-
-    case (x @ ReturnSafety(AnyReturn), FunctionReturn(d)) =>
-      Some(ExitPoint.wrapEarlyFunctionReturn(d)(x))
-    case (x @ ReturnSafety(FunctionReturnOnly(d1)), FunctionReturn(d2)) if d1 == d2 =>
-      Some(ExitPoint.wrapEarlyFunctionReturn(d2)(x))
-    case (FunctionReturn(d), x @ ReturnSafety(AnyReturn)) =>
-      Some(ExitPoint.wrapEarlyFunctionReturn(d)(x))
-    case (FunctionReturn(d1), x @ ReturnSafety(FunctionReturnOnly(d2))) if d1 == d2 =>
-      Some(ExitPoint.wrapEarlyFunctionReturn(d1)(x))
+    case (x , Halt|FunctionReturn) => Some(x)
+    case (Halt|FunctionReturn, x) => Some(x)
 
     case _ => None
   }
-  def chain(a: BlockEnd, b: BlockEnd): Option[BlockEnd] = {
+  def chain(a: BlockEnd, b: BlockEnd): BlockEnd = {
     // Ensure new stack is deep enough
     val minDepth = a.stackState.vars.length + b.stackState.vars.length - b.stackState.thenIndex
     val aStack = a.stackState
@@ -80,42 +54,21 @@ object BlockEnd {
       aStack.thenIndex + bStack.thenIndex - aStack.vars.length
     )
 
-    def fixUpReturnDepth(exitPoint: ExitPoint): Option[ExitPoint] = exitPoint match {
-      case ConstJump(_)|CalculatedJump|Halt|Throw|WithEarlyContractReturn(_) => Some(exitPoint)
-      case FunctionReturn(depth) =>
+    def fixUpReturnDepth(exitPoint: ExitPoint): ExitPoint = exitPoint match {
+      case ConstJump(_)|CalculatedJump|Halt|Throw => exitPoint
+      case StackJump(depth) =>
         aStack(depth) match {
-          case ConstExpr(n) => Some(ConstJump(n.toInt))
-          case StackVar(d) => Some(FunctionReturn(d))
-          case CalculatedExpr => Some(CalculatedJump)
+          case ConstExpr(n) => ConstJump(n.toInt)
+          case StackVar(d) => StackJump(d)
+          case CalculatedExpr => CalculatedJump
         }
-      case WithEarlyFunctionReturn(depth, wrapped) =>
-        for {
-          fixedReturn <- fixUpReturnDepth(FunctionReturn(depth))
-          fixedWrapped <- fixUpReturnDepth(wrapped)
-          result <- unifyExitPoints(fixedReturn, fixedWrapped)
-        } yield result
       case ConditionalExit(trueExit, falseExit) =>
-        for {
-          fixedTrue <- fixUpReturnDepth(trueExit)
-          fixedFalse <- fixUpReturnDepth(falseExit)
-          (checkedFixedTrue: SingleReturn, checkedFixedFalse: SingleReturn) = (fixedTrue, fixedFalse)
-        } yield ConditionalExit(checkedFixedTrue, checkedFixedFalse)
+        val fixedTrue = fixUpReturnDepth(trueExit)
+        val fixedFalse = fixUpReturnDepth(falseExit)
+        ConditionalExit(fixedTrue, fixedFalse)
     }
 
-    def propagateReturnSafety(from: ExitPoint, to: ExitPoint) = (from, to) match {
-      case (ReturnSafety(AnyReturn), _) => Some(to)
-      case (ReturnSafety(ContractReturnOnly), ReturnSafety(AnyReturn|ContractReturnOnly)) =>
-        Some(ExitPoint.wrapEarlyContractReturn(to))
-      case (ReturnSafety(FunctionReturnOnly(depth)), ReturnSafety(AnyReturn)) =>
-        Some(ExitPoint.wrapEarlyFunctionReturn(depth)(to))
-      case (ReturnSafety(FunctionReturnOnly(depth)), ReturnSafety(FunctionReturnOnly(depth2))) if depth == depth2 =>
-        Some(ExitPoint.wrapEarlyFunctionReturn(depth)(to))
-      case _ => None
-    }
-
-    for {
-      fixedUpExitPoint <- fixUpReturnDepth(b.exitPoint)
-      exitPoint <- propagateReturnSafety(a.exitPoint, fixedUpExitPoint)
-    } yield BlockEnd(exitPoint, stackState)
+    val fixedUpExitPoint = fixUpReturnDepth(b.exitPoint)
+    BlockEnd(fixedUpExitPoint, stackState)
   }
 }

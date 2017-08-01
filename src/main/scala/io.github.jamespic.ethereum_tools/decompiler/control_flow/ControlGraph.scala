@@ -18,9 +18,8 @@ case class ControlGraph(blocks: SortedSet[Block]) {
 
   def exitBlocks(exitPoint: ExitPoint): Set[Block] = exitPoint match {
     case ConstJump(n) => Set(blockByAddress(n))
-    case FunctionReturn(_)|Halt|Throw => Set.empty
+    case StackJump(_)|Halt|Throw => Set.empty
     case ConditionalExit(trueExit, falseExit) => exitBlocks(trueExit) ++ exitBlocks(falseExit)
-    case EarlyReturnWrapper(wrapped) => exitBlocks(wrapped)
     case CalculatedJump => Set.empty
   }
 

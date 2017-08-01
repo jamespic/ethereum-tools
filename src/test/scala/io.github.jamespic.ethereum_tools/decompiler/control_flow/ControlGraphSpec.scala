@@ -12,10 +12,10 @@ class ControlGraphSpec extends FreeSpec with Matchers {
   def fakeBlock(address: Int, exitPoint: ExitPoint) = new BasicBlock(address, Nil, BlockEnd(exitPoint, StackState()))
   val instance = ControlGraph(SortedSet[Block](
     fakeBlock(0, ConstJump(4)),
-    fakeBlock(4, ConditionalExit(ConstJump(4), FunctionReturn(2))),
+    fakeBlock(4, ConditionalExit(ConstJump(4), StackJump(2))),
     fakeBlock(6, CalculatedJump),
-    fakeBlock(10, WithEarlyFunctionReturn(2, ConstJump(4))),
-    fakeBlock(15, WithEarlyContractReturn(ConstJump(10))),
+    fakeBlock(10, ConditionalExit(Halt, ConstJump(4))),
+    fakeBlock(15, ConditionalExit(FunctionReturn, ConstJump(10))),
     fakeBlock(17, ConditionalExit(Throw, ConstJump(4)))
   ))
 
@@ -25,12 +25,12 @@ class ControlGraphSpec extends FreeSpec with Matchers {
         0 -> SortedSet.empty[Block],
         4 -> SortedSet(
           fakeBlock(0, ConstJump(4)),
-          fakeBlock(4, ConditionalExit(ConstJump(4), FunctionReturn(2))),
-          fakeBlock(10, WithEarlyFunctionReturn(2, ConstJump(4))),
+          fakeBlock(4, ConditionalExit(ConstJump(4), StackJump(2))),
+          fakeBlock(10, ConditionalExit(Halt, ConstJump(4))),
           fakeBlock(17, ConditionalExit(Throw, ConstJump(4)))
         ),
         6 -> SortedSet.empty[Block],
-        10 -> SortedSet(fakeBlock(15, WithEarlyContractReturn(ConstJump(10)))),
+        10 -> SortedSet(fakeBlock(15, ConditionalExit(FunctionReturn, ConstJump(10)))),
         15 -> SortedSet.empty[Block],
         17 -> SortedSet.empty[Block]
       ))

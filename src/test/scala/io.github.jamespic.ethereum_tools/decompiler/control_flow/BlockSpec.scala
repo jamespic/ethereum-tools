@@ -116,7 +116,7 @@ class BlockSpec extends FreeSpec with Matchers {
           25 -> SWAP(1),
           26 -> JUMPI
         ), BlockEnd(
-          ConditionalExit(FunctionReturn(1), ConstJump(27)),
+          ConditionalExit(StackJump(1), ConstJump(27)),
           StackState(Nil, 2)
         )),
         BasicBlock(27, List(
@@ -131,14 +131,14 @@ class BlockSpec extends FreeSpec with Matchers {
           32 -> SWAP(2),
           33 -> JUMPI
         ), BlockEnd(
-          FunctionReturn(2),
+          StackJump(2),
           StackState(Nil, 2)
         )),
         BasicBlock(34, List(
           34 -> POP,
           35 -> JUMP
         ), BlockEnd(
-          FunctionReturn(2),
+          StackJump(2),
           StackState(Nil, 2)
         )),
         BasicBlock(36, List(

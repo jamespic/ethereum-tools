@@ -27,8 +27,8 @@ class GraphRewriteRulesSpec extends FreeSpec with Matchers {
         ))
       }
       "should fix up return addresses" in {
-        val a = BasicBlock(0, Nil, BlockEnd(ConditionalExit(ConstJump(1), FunctionReturn(1)), StackState(List(ConstExpr(1)))))
-        val b = BasicBlock(1, Nil, BlockEnd(FunctionReturn(2), StackState()))
+        val a = BasicBlock(0, Nil, BlockEnd(ConditionalExit(ConstJump(1), StackJump(1)), StackState(List(ConstExpr(1)))))
+        val b = BasicBlock(1, Nil, BlockEnd(StackJump(2), StackState()))
 
         val graph = ControlGraph(
           a, b
@@ -40,7 +40,7 @@ class GraphRewriteRulesSpec extends FreeSpec with Matchers {
               a,
               b,
               BlockEnd(
-                FunctionReturn(1),
+                StackJump(1),
                 StackState(List(ConstExpr(1)))
               )
             )

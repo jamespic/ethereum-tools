@@ -48,8 +48,7 @@ case class PassThroughBlock(address: Int, block1: Block, block2: Block, blockEnd
 
 case class FunctionBlock(address: Int, code: Block, inputs: Int, outputs: Int) extends Block {
   assert(code.exitPoint match {
-    case FunctionReturn(`inputs`) |
-      WithEarlyFunctionReturn(`inputs`, Throw|FunctionReturn(`inputs`)) => true
+    case StackJump(`inputs`)=> true
     case _ => false
   })
   assert(code.stackChange.height == outputs - inputs)
@@ -59,7 +58,7 @@ case class FunctionBlock(address: Int, code: Block, inputs: Int, outputs: Int) e
       code.toString.split("\n").map("    " + _).mkString("\n") +
     "\n} -> " + exitPoint + "\n\n"
 
-  override def blockEnd = BlockEnd(FunctionReturn(inputs), code.stackChange)
+  override def blockEnd = BlockEnd(StackJump(inputs), code.stackChange)
 }
 
 object Block {
@@ -92,13 +91,13 @@ object Block {
         case (INVALID|REVERT|SUICIDE|UNKNOWN, _) =>
           finishBlock(Throw)
         case (JUMP, StackVar(n)) =>
-          finishBlock(FunctionReturn(n))
+          finishBlock(StackJump(n))
         case (JUMP, ConstExpr(n)) =>
           finishBlock(ConstJump(n.toInt))
         case (JUMP, CalculatedExpr) =>
           finishBlock(CalculatedJump)
         case (JUMPI, StackVar(n)) =>
-          finishBlock(ConditionalExit(FunctionReturn(n), ConstJump(i + op.opcodeSize)))
+          finishBlock(ConditionalExit(StackJump(n), ConstJump(i + op.opcodeSize)))
         case (JUMPI, ConstExpr(n)) =>
           finishBlock(ConditionalExit(ConstJump(n.toInt), ConstJump(i + op.opcodeSize)))
         case (JUMPI, CalculatedExpr) =>
