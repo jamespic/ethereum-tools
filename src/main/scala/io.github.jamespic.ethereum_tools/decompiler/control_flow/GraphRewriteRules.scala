@@ -21,7 +21,7 @@ object GraphRewriteRules {
     orElse findUnlessRewrite(graph)
   )
 
-  def identifyFunctions(graph: ControlGraph): Option[ControlGraph] = {
+  def identifyFunctions(graph: ControlGraph) = {
     /*
      * Distinguishing between function returns and function variable calls is
      * tricky. However, observe that last one before a contract return must be
@@ -29,59 +29,31 @@ object GraphRewriteRules {
      * stack. When we reach a Halt, we unwind the stack until we find a StackJump,
      * which must be a function return, then work back until we find the
      * block that added its return value onto the stack.
-     *
      */
     case class VisitedState(nextAddress: Int, blocksInStack: Set[Block])
     case class FunctionEntry(address: Int, inputs: Int, outputs: Int)
     case class SignatureHint(inputs: Int, outputs: Int)
-    case class WalkState(
-      blockEnd: BlockEnd, jumpStack: List[Block], visitedStates: Set[VisitedState],
-      knownFunctionLocations: Set[FunctionEntry], signatureHints: Map[Block, SignatureHint],
-      unwindingFunctions: Set[BlockEnd], shouldUnwind: Boolean
+    case class WalkResult(
+      shouldUnwind: Boolean,
+      visitedStates: Set[VisitedState],
+      knownFunctionLocations: Set[FunctionEntry] = Set.empty,
+      unwindingFunctions: Set[BlockEnd] = Set.empty,
+      signatureHints: Map[Block, SignatureHint] = Map.empty
     ) {
-      def clean = copy(unwindingFunctions = Set.empty, shouldUnwind = false)
-      def walk(): WalkState = {
-        // Walk the call graph
-        val walkResult = blockEnd.exitPoint match {
-          case ConstJump(address) =>
-            if (visitedStates contains VisitedState(address, jumpStack.toSet)) this
-            else {
-              val nextBlock = graph.blockByAddress(address)
-              val newJumpStack = nextBlock :: jumpStack
-              clean.copy(
-                blockEnd = blockEnd >> nextBlock.blockEnd,
-                jumpStack = newJumpStack,
-                visitedStates = visitedStates + VisitedState(address, newJumpStack.toSet),
-              ).walk()
-            }
-          case CalculatedJump|Throw => copy(shouldUnwind = false)  // Can't tell us anything
-          case StackJump(_) => throw new AssertionError("Stack jump must have known jump location")
-          case FunctionReturn => throw new AssertionError("Function returns should not have been calculated yet")
-          case Halt => copy(shouldUnwind = true)
-          case ConditionalExit(trueExit, falseExit) =>
-            val result1 = clean.copy(blockEnd = BlockEnd(trueExit, blockEnd.stackState)).walk()
-            val result2 = result1.clean.copy(blockEnd = BlockEnd(falseExit, blockEnd.stackState)).walk()
-            result2.copy(
-              unwindingFunctions =
-                result1.unwindingFunctions
-                ++ result2.unwindingFunctions,
-              shouldUnwind = result1.shouldUnwind || result2.shouldUnwind)
-        }
+      def +(that: WalkResult) = WalkResult(
+        this.shouldUnwind || that.shouldUnwind,
+        this.visitedStates ++ that.visitedStates,
+        this.knownFunctionLocations ++ that.knownFunctionLocations,
+        this.unwindingFunctions ++ that.unwindingFunctions,
+        this.signatureHints ++ that.signatureHints
+      )
 
-        walkResult.copy(
-          shouldUnwind = shouldUnwind || walkResult.shouldUnwind,
-          visitedStates = visitedStates ++ walkResult.visitedStates
-        ).unwind()
-      }
-
-      def unwind(): WalkState = {
-        assert(jumpStack.nonEmpty || unwindingFunctions.isEmpty, "Unwound stack, but not all function returns explained?!")
+      def unwind(unwindBlock: Block): WalkResult = {
         if (shouldUnwind) {
-          val currentBlock = jumpStack.head
           // Figure out if this is a function call by seeing if this is the block that
           // provided the return address for any unwinding functions
           val unwinds = for (unwindingFunction <- unwindingFunctions) yield
-            (currentBlock.blockEnd >> unwindingFunction, unwindingFunction)
+            (unwindBlock.blockEnd >> unwindingFunction, unwindingFunction)
           val (fullyUnwound, notFullyUnwound) = unwinds partition {
             case (BlockEnd(ConstJump(_), _), _) => true
             case (BlockEnd(StackJump(_), _), _) => false
@@ -100,20 +72,81 @@ object GraphRewriteRules {
                 knownFunctionLocations
                 + FunctionEntry(functionAddress, inputs, outputs),
               signatureHints =
-                signatureHints + (currentBlock -> SignatureHint(inputs, outputs)),
+                signatureHints + (unwindBlock -> SignatureHint(inputs, outputs)),
               unwindingFunctions =
                 notFullyUnwound map (_._1)
             )
-          } else {
-
-            ???
+          } else unwindBlock.blockEnd.exitPoint match {
+            // If it's a stack jump, it must be a function return (otherwise it wouldhave matched above)
+            case StackJump(_) => copy(unwindingFunctions = unwindingFunctions + unwindBlock.blockEnd)
+            case _ => this
           }
         } else {
           this
         }
       }
     }
-    ???
+
+    case class WalkState(
+      blockEnd: BlockEnd = BlockEnd(),
+      jumpStack: List[Block] = Nil,
+      visitedStates: Set[VisitedState] = Set.empty,
+      knownFunctionLocations: Set[FunctionEntry] = Set.empty
+    ) {
+      def innerWalk(): WalkResult = blockEnd.exitPoint match {
+        case ConstJump(address) =>
+          if (visitedStates contains VisitedState(address, jumpStack.toSet)) WalkResult(
+            shouldUnwind = false, visitedStates = visitedStates
+          )
+          else {
+            val nextBlock = graph.blockByAddress(address)
+            val newJumpStack = nextBlock :: jumpStack
+            copy(
+              blockEnd = blockEnd >> nextBlock.blockEnd,
+              jumpStack = newJumpStack,
+              visitedStates = visitedStates + VisitedState(address, newJumpStack.toSet)
+            ).walk()
+          }
+        case CalculatedJump|Throw => // Can't tell us anything
+          WalkResult(
+            shouldUnwind = true,
+            visitedStates = visitedStates
+          )
+        case StackJump(_) => throw new AssertionError("Stack jump must have known jump location")
+        case FunctionReturn(_) => throw new AssertionError("Function returns should not have been calculated yet")
+        case Halt =>
+          WalkResult(
+            shouldUnwind = true,
+            visitedStates = visitedStates
+          )
+        case ConditionalExit(trueExit, falseExit) =>
+          val trueResult = copy(
+            blockEnd = blockEnd.copy(exitPoint = trueExit)
+          ).innerWalk()
+          val falseResult = copy(
+            visitedStates = visitedStates ++ trueResult.visitedStates,
+            knownFunctionLocations = knownFunctionLocations ++ trueResult.knownFunctionLocations,
+            blockEnd = blockEnd.copy(exitPoint = falseExit)
+          ).innerWalk()
+          trueResult + falseResult
+      }
+
+      def walk(): WalkResult = {
+        // Walk the call graph
+        val walkResult: WalkResult = innerWalk()
+
+        jumpStack match {
+          case head :: tail => walkResult.unwind(head)
+          case Nil => walkResult
+        }
+      }
+    }
+    WalkState().walk()
+    // val WalkResult(_, _, functionLocations, _, signatureHints) = WalkState().walk()
+    // // Now break it into a series of disjoint function blocks, and if any of the
+    // // blocks prove not to be disjoint, see if they make sense as functions
+    // // in their own right
+    // ???
   }
 
   def stripUnreachable(graph: ControlGraph): Option[ControlGraph] = {

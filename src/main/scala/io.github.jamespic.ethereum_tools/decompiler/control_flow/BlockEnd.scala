@@ -36,8 +36,11 @@ object BlockEnd {
     case (x , Throw) => Some(x)
     case (Throw, x) => Some(x)
 
-    case (x , Halt|FunctionReturn) => Some(x)
-    case (Halt|FunctionReturn, x) => Some(x)
+    case (Halt, FunctionReturn(_)) => None
+    case (FunctionReturn(_), Halt) => None
+
+    case (x , Halt|FunctionReturn(_)) => Some(x)
+    case (Halt|FunctionReturn(_), x) => Some(x)
 
     case _ => None
   }

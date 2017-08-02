@@ -32,10 +32,12 @@ object Decompiler {
     val instructions = Bytecode.parse(bytes)
     val blocks = Block.identifyBasicBlocks(instructions)
     val controlGraph = ControlGraph(blocks)
-    val rewritten = GraphRewriteRules.rewrite(controlGraph)
-    if (!GraphRewriteRules.fullyRewritten(rewritten)) {
-      println("NOT FULLY REWRITTEN")
-    }
-    rewritten
+    println(controlGraph)
+    GraphRewriteRules.identifyFunctions(controlGraph).knownFunctionLocations
+    // val rewritten = GraphRewriteRules.rewrite(controlGraph)
+    // if (!GraphRewriteRules.fullyRewritten(rewritten)) {
+    //   println("NOT FULLY REWRITTEN")
+    // }
+    // rewritten
   }
 }

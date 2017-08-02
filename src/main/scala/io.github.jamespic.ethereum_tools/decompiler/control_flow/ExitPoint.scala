@@ -8,6 +8,6 @@ case class ConstJump(address: Int) extends ExitPoint {
 case class StackJump(depth: Int) extends ExitPoint
 case object CalculatedJump extends ExitPoint
 case object Halt extends ExitPoint
-case object FunctionReturn extends ExitPoint
+case class FunctionReturn(outputs: Int) extends ExitPoint
 case object Throw extends ExitPoint
 case class ConditionalExit(trueExit: ExitPoint, falseExit: ExitPoint) extends ExitPoint

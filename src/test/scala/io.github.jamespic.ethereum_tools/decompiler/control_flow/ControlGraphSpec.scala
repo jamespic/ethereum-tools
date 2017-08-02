@@ -15,7 +15,7 @@ class ControlGraphSpec extends FreeSpec with Matchers {
     fakeBlock(4, ConditionalExit(ConstJump(4), StackJump(2))),
     fakeBlock(6, CalculatedJump),
     fakeBlock(10, ConditionalExit(Halt, ConstJump(4))),
-    fakeBlock(15, ConditionalExit(FunctionReturn, ConstJump(10))),
+    fakeBlock(15, ConditionalExit(FunctionReturn(2), ConstJump(10))),
     fakeBlock(17, ConditionalExit(Throw, ConstJump(4)))
   ))
 
@@ -30,7 +30,7 @@ class ControlGraphSpec extends FreeSpec with Matchers {
           fakeBlock(17, ConditionalExit(Throw, ConstJump(4)))
         ),
         6 -> SortedSet.empty[Block],
-        10 -> SortedSet(fakeBlock(15, ConditionalExit(FunctionReturn, ConstJump(10)))),
+        10 -> SortedSet(fakeBlock(15, ConditionalExit(FunctionReturn(2), ConstJump(10)))),
         15 -> SortedSet.empty[Block],
         17 -> SortedSet.empty[Block]
       ))
