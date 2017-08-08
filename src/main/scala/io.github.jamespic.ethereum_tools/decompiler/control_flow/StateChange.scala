@@ -1,16 +1,16 @@
 package io.github.jamespic.ethereum_tools.decompiler.control_flow
 
-case class BlockEnd(exitPoint: ExitPoint = ConstJump(0), stackState: StackState = StackState()) {
-  def =~(that: BlockEnd) = BlockEnd.merge(this, that).nonEmpty
-  def merge(that: BlockEnd) = BlockEnd.merge(this, that)
-  def &(that: BlockEnd) = BlockEnd.merge(this, that).get
+case class StateChange(exitPoint: ExitPoint = ConstJump(0), stackState: StackState = StackState()) {
+  def =~(that: StateChange) = StateChange.merge(this, that).nonEmpty
+  def merge(that: StateChange) = StateChange.merge(this, that)
+  def &(that: StateChange) = StateChange.merge(this, that).get
 
-  def chain(that: BlockEnd) = BlockEnd.chain(this, that)
-  def >>(that: BlockEnd) = BlockEnd.chain(this, that)
+  def chain(that: StateChange) = StateChange.chain(this, that)
+  def >>(that: StateChange) = StateChange.chain(this, that)
 }
 
-object BlockEnd {
-  def merge(a: BlockEnd, b: BlockEnd): Option[BlockEnd] = {
+object StateChange {
+  def merge(a: StateChange, b: StateChange): Option[StateChange] = {
     if (a.stackState.height != b.stackState.height) None
     else {
       val stackState = {
@@ -23,7 +23,7 @@ object BlockEnd {
         }
         StackState(newVars, aStack.thenIndex)
       }
-      for (exitPoint <- unifyExitPoints(a.exitPoint, b.exitPoint)) yield BlockEnd(exitPoint, stackState)
+      for (exitPoint <- unifyExitPoints(a.exitPoint, b.exitPoint)) yield StateChange(exitPoint, stackState)
     }
   }
 
@@ -44,7 +44,7 @@ object BlockEnd {
 
     case _ => None
   }
-  def chain(a: BlockEnd, b: BlockEnd): BlockEnd = {
+  def chain(a: StateChange, b: StateChange): StateChange = {
     // Ensure new stack is deep enough
     val minDepth = a.stackState.vars.length + b.stackState.vars.length - b.stackState.thenIndex
     val aStack = a.stackState
@@ -72,6 +72,6 @@ object BlockEnd {
     }
 
     val fixedUpExitPoint = fixUpReturnDepth(b.exitPoint)
-    BlockEnd(fixedUpExitPoint, stackState)
+    StateChange(fixedUpExitPoint, stackState)
   }
 }

@@ -7,19 +7,19 @@ import Bytecode._
 
 sealed trait Block {
   val address: Int
-  def blockEnd: BlockEnd
-  def exitPoint: ExitPoint = blockEnd.exitPoint
-  def stackChange: StackState = blockEnd.stackState
+  def stateChange: StateChange
+  def exitPoint: ExitPoint = stateChange.exitPoint
+  def stackChange: StackState = stateChange.stackState
 }
 
-case class BasicBlock(address: Int, instructions: InstList, blockEnd: BlockEnd) extends Block {
+case class BasicBlock(address: Int, instructions: InstList, stateChange: StateChange) extends Block {
   override def toString =
     f"Block ${address}%04x {\n" +
       instructions.map(i => f"    ${i._1}%04x ${i._2}%s").mkString("\n") +
     "\n} -> " + exitPoint + "\n\n"
 }
 
-case class IfBlock(address: Int, decisionBlock: Block, trueBlock: Block, blockEnd: BlockEnd) extends Block {
+case class IfBlock(address: Int, decisionBlock: Block, trueBlock: Block, stateChange: StateChange) extends Block {
   override def toString =
     f"if ${address}%04x  {\n" +
       Block.printIndented(decisionBlock)
@@ -28,7 +28,7 @@ case class IfBlock(address: Int, decisionBlock: Block, trueBlock: Block, blockEn
     "\n} -> " + exitPoint + "\n\n"
 }
 
-case class UnlessBlock(address: Int, decisionBlock: Block, falseBlock: Block, blockEnd: BlockEnd) extends Block {
+case class UnlessBlock(address: Int, decisionBlock: Block, falseBlock: Block, stateChange: StateChange) extends Block {
   override def toString =
     f"unless ${address}%04x  {\n" +
       Block.printIndented(decisionBlock)
@@ -37,7 +37,7 @@ case class UnlessBlock(address: Int, decisionBlock: Block, falseBlock: Block, bl
     "\n} -> " + exitPoint + "\n\n"
 }
 
-case class PassThroughBlock(address: Int, block1: Block, block2: Block, blockEnd: BlockEnd) extends Block {
+case class PassThroughBlock(address: Int, block1: Block, block2: Block, stateChange: StateChange) extends Block {
   override def toString =
     f"passthrough ${address}%04x  {\n" +
       Block.printIndented(block1)
@@ -58,7 +58,7 @@ case class FunctionBlock(address: Int, code: Block, inputs: Int, outputs: Int) e
       code.toString.split("\n").map("    " + _).mkString("\n") +
     "\n} -> " + exitPoint + "\n\n"
 
-  override def blockEnd = BlockEnd(StackJump(inputs), code.stackChange)
+  override def stateChange = StateChange(StackJump(inputs), code.stackChange)
 }
 
 object Block {
@@ -70,7 +70,7 @@ object Block {
     def finishBlock(exitPoint: ExitPoint) = {
       var block = currentBlock.result()
       if (block.nonEmpty) {
-        result += BasicBlock(blockStart, block, BlockEnd(exitPoint, currentStack))
+        result += BasicBlock(blockStart, block, StateChange(exitPoint, currentStack))
       }
       currentBlock = List.newBuilder[(Int, Bytecode)]
       currentStack = StackState()
@@ -114,5 +114,5 @@ object Block {
     code.toString.split("\n").map("    " + _).mkString("\n")
   }
 
-  def unapply(block: Block) = Some((block.address, block.blockEnd))
+  def unapply(block: Block) = Some((block.address, block.stateChange))
 }

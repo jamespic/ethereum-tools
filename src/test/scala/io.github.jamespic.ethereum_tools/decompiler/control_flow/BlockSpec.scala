@@ -58,7 +58,7 @@ class BlockSpec extends FreeSpec with Matchers {
         BasicBlock(0, List(
           0 -> PUSH("0004"),
           3 -> JUMP
-        ), BlockEnd(
+        ), StateChange(
           ConstJump(4),
           StackState()
         )),
@@ -66,13 +66,13 @@ class BlockSpec extends FreeSpec with Matchers {
           4 -> CALLER,
           5 -> POP,
           6 -> STOP
-        ), BlockEnd(
+        ), StateChange(
           Halt,
           StackState()
         )),
         BasicBlock(7, List(
           7 -> INVALID
-        ), BlockEnd(
+        ), StateChange(
           Throw,
           StackState()
         )),
@@ -80,19 +80,19 @@ class BlockSpec extends FreeSpec with Matchers {
           8 -> PUSH("01"),
           10 -> PUSH("02"),
           12 -> RETURN
-        ), BlockEnd(
+        ), StateChange(
           Throw,
           StackState(List(ConstExpr(2), ConstExpr(1)))
         )),
         BasicBlock(13, List(
           13 -> REVERT
-        ), BlockEnd(
+        ), StateChange(
           Throw,
           StackState(Nil, 2)
         )),
         BasicBlock(14, List(
           14 -> UNKNOWN
-        ), BlockEnd(
+        ), StateChange(
           Throw,
           StackState()
         )),
@@ -100,7 +100,7 @@ class BlockSpec extends FreeSpec with Matchers {
           15 -> PUSH("01"),
           17 -> PUSH("00"),
           19 -> JUMPI
-        ), BlockEnd(
+        ), StateChange(
           ConditionalExit(ConstJump(0), ConstJump(20)),
           StackState()
         )),
@@ -108,14 +108,14 @@ class BlockSpec extends FreeSpec with Matchers {
           20 -> PUSH("0100"),
           23 -> MLOAD,
           24 -> JUMP
-        ), BlockEnd(
+        ), StateChange(
           CalculatedJump,
           StackState()
         )),
         BasicBlock(25, List(
           25 -> SWAP(1),
           26 -> JUMPI
-        ), BlockEnd(
+        ), StateChange(
           ConditionalExit(StackJump(1), ConstJump(27)),
           StackState(Nil, 2)
         )),
@@ -123,34 +123,34 @@ class BlockSpec extends FreeSpec with Matchers {
           27 -> PUSH("0100"),
           30 -> MLOAD,
           31 -> JUMPI
-        ), BlockEnd(
+        ), StateChange(
           ConditionalExit(CalculatedJump, ConstJump(32)),
           StackState(Nil, 1)
         )),
         BasicBlock(32, List(
           32 -> SWAP(2),
           33 -> JUMPI
-        ), BlockEnd(
+        ), StateChange(
           StackJump(2),
           StackState(Nil, 2)
         )),
         BasicBlock(34, List(
           34 -> POP,
           35 -> JUMP
-        ), BlockEnd(
+        ), StateChange(
           StackJump(2),
           StackState(Nil, 2)
         )),
         BasicBlock(36, List(
           36 -> POP
-        ), BlockEnd(
+        ), StateChange(
           ConstJump(35),
           StackState(Nil,1)
         )),
         BasicBlock(37, List(
           37 -> JUMPDEST,
           38 -> POP
-        ), BlockEnd(
+        ), StateChange(
           Halt,
           StackState(Nil, 1)
         ))

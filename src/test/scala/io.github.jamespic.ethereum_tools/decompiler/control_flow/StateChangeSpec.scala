@@ -4,39 +4,39 @@ import org.scalatest.{FreeSpec, Matchers}
 
 
 
-class BlockEndSpec extends FreeSpec with Matchers {
-  case class merging(a: BlockEnd, b: BlockEnd) {
-    def shouldGive(c: BlockEnd): Unit = {
-      BlockEnd.merge(a, b) should equal (Some(c))
-      BlockEnd.merge(b, a) should equal (Some(c))
+class StateChangeSpec extends FreeSpec with Matchers {
+  case class merging(a: StateChange, b: StateChange) {
+    def shouldGive(c: StateChange): Unit = {
+      StateChange.merge(a, b) should equal (Some(c))
+      StateChange.merge(b, a) should equal (Some(c))
     }
-    def shouldGive(c: ExitPoint): Unit = shouldGive(BlockEnd(exitPoint=c))
-    def shouldGive(c: StackState): Unit = shouldGive(BlockEnd(stackState=c))
+    def shouldGive(c: ExitPoint): Unit = shouldGive(StateChange(exitPoint=c))
+    def shouldGive(c: StackState): Unit = shouldGive(StateChange(stackState=c))
     def shouldFail = {
-      BlockEnd.merge(a, b) should equal (None)
-      BlockEnd.merge(b, a) should equal (None)
+      StateChange.merge(a, b) should equal (None)
+      StateChange.merge(b, a) should equal (None)
     }
   }
 
   object chaining {
-    def apply(a: ExitPoint, b: ExitPoint): chaining = this(BlockEnd(exitPoint=a), BlockEnd(exitPoint=b))
-    def apply(a: StackState, b: StackState): chaining = this(BlockEnd(stackState=a), BlockEnd(stackState=b))
+    def apply(a: ExitPoint, b: ExitPoint): chaining = this(StateChange(exitPoint=a), StateChange(exitPoint=b))
+    def apply(a: StackState, b: StackState): chaining = this(StateChange(stackState=a), StateChange(stackState=b))
   }
 
-  case class chaining(a: BlockEnd, b: BlockEnd) {
-    def shouldGive(c: BlockEnd): Unit = {
-      BlockEnd.chain(a, b) should equal (c)
+  case class chaining(a: StateChange, b: StateChange) {
+    def shouldGive(c: StateChange): Unit = {
+      StateChange.chain(a, b) should equal (c)
     }
-    def shouldGive(c: ExitPoint): Unit = shouldGive(BlockEnd(exitPoint=c))
-    def shouldGive(c: StackState): Unit = shouldGive(BlockEnd(stackState=c))
+    def shouldGive(c: ExitPoint): Unit = shouldGive(StateChange(exitPoint=c))
+    def shouldGive(c: StackState): Unit = shouldGive(StateChange(stackState=c))
   }
 
   object merging {
-    def apply(a: ExitPoint, b: ExitPoint): merging = this(BlockEnd(exitPoint=a), BlockEnd(exitPoint=b))
-    def apply(a: StackState, b: StackState): merging = this(BlockEnd(stackState=a), BlockEnd(stackState=b))
+    def apply(a: ExitPoint, b: ExitPoint): merging = this(StateChange(exitPoint=a), StateChange(exitPoint=b))
+    def apply(a: StackState, b: StackState): merging = this(StateChange(stackState=a), StateChange(stackState=b))
   }
 
-  "BlockEnd" - {
+  "StateChange" - {
     "unify" - {
       "should never unify CalculatedJump, even with itself" in {
         merging(CalculatedJump, CalculatedJump).shouldFail
@@ -137,17 +137,17 @@ class BlockEndSpec extends FreeSpec with Matchers {
             CalculatedExpr
           ), 1
         )
-        val endA = BlockEnd(
+        val endA = StateChange(
           stackState = stackStateA
         )
-        chaining(endA, BlockEnd(exitPoint=StackJump(0)))
-          .shouldGive(BlockEnd(ConstJump(3), stackStateA))
-        chaining(endA, BlockEnd(exitPoint=StackJump(1)))
-          .shouldGive(BlockEnd(StackJump(2), stackStateA))
-        chaining(endA, BlockEnd(exitPoint=StackJump(2)))
-          .shouldGive(BlockEnd(CalculatedJump, stackStateA))
-        chaining(endA, BlockEnd(exitPoint=StackJump(3)))
-          .shouldGive(BlockEnd(StackJump(1), stackStateA))
+        chaining(endA, StateChange(exitPoint=StackJump(0)))
+          .shouldGive(StateChange(ConstJump(3), stackStateA))
+        chaining(endA, StateChange(exitPoint=StackJump(1)))
+          .shouldGive(StateChange(StackJump(2), stackStateA))
+        chaining(endA, StateChange(exitPoint=StackJump(2)))
+          .shouldGive(StateChange(CalculatedJump, stackStateA))
+        chaining(endA, StateChange(exitPoint=StackJump(3)))
+          .shouldGive(StateChange(StackJump(1), stackStateA))
       }
     }
   }

@@ -27,7 +27,7 @@ case class ControlGraph(blocks: SortedSet[Block]) {
 
   object ExitBlock {
     def unapplySeq(exitPoint: ExitPoint): Option[Seq[Block]] = Some(exitBlocks(exitPoint).toSeq)
-    def unapplySeq(blockEnd: BlockEnd): Option[Seq[Block]] = unapplySeq(blockEnd.exitPoint)
+    def unapplySeq(stateChange: StateChange): Option[Seq[Block]] = unapplySeq(stateChange.exitPoint)
   }
 }
 
