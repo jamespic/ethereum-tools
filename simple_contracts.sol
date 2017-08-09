@@ -27,10 +27,20 @@ contract IfElse {
 
 contract SimpleIf {
   function x(bool y) payable returns (int) {
-    int x = 1;
+    int z = 1;
     if (y) {
-      x = 2;
+      z = 2;
     }
-    return x;
+    return z;
+  }
+}
+
+contract Throw {
+  function x(int a, int b) internal {
+    assert((a + b == 0) || false);
+  }
+
+  function y() {
+    x(1, 2);
   }
 }
