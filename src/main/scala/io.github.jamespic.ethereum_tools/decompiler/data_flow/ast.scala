@@ -46,6 +46,7 @@ case class LtExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a < $b)", a, b)
 case class GtExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a > $b)", a, b)
 case class SltExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a <$$ $b)", a, b)
 case class SgtExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a >$$ $b)", a, b)
+case class EqExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a == $b)", a, b)
 case class IszeroExpr(a: Expr) extends MaybeDirtyExpr(s"($a != 0)", a)
 case class AndExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a & $b)", a, b)
 case class OrExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a | $b)", a, b)
@@ -122,7 +123,8 @@ case class DelegatecallStmt(
     s"(ok, MEMORY[$outOffset..($outOffset + $outLength)]) = $addr.delegatecall.gas($gas)(MEMORY[$inOffset..($inOffset + $inLength)]);"
   }
 }
-case class ThrowStmt(a: Expr, b: Expr) extends StrRepr("throw;") with Stmt
+case object ThrowStmt extends StrRepr("throw;") with Stmt
+case class RevertStmt(a: Expr, b: Expr) extends StrRepr("revert();") with Stmt
 case class SelfdestructStmt(a: Expr) extends StrRepr(s"selfdestruct($a);") with Stmt
 
 case class GotoStmt(a: Expr) extends StrRepr(s"GOTO ($a);") with Stmt
@@ -186,11 +188,13 @@ object AST {
         case GT => push(GtExpr(pop(), pop()))
         case SLT => push(SltExpr(pop(), pop()))
         case SGT => push(SgtExpr(pop(), pop()))
+        case EQ => push(EqExpr(pop(), pop()))
         case ISZERO => push(IszeroExpr(pop()))
         case AND => push(AndExpr(pop(), pop()))
         case OR => push(OrExpr(pop(), pop()))
         case XOR => push(XorExpr(pop(), pop()))
         case NOT => push(NotExpr(pop()))
+        case BYTE => push(ByteExpr(pop(), pop()))
         case SHA3 => push(SHA3Expr(pop(), pop()))
         case ADDRESS => push(AddressExpr)
         case BALANCE => push(BalanceExpr(pop()))
@@ -323,7 +327,8 @@ object AST {
           flushStack()
           stmts += DelegatecallStmt(gas, addr, inOffset, inLength, outOffset, outLength)
           push(OkVarExpr)
-        case INVALID|UNKNOWN => stmts += ThrowStmt(pop(), pop())
+        case INVALID|UNKNOWN => stmts += ThrowStmt
+        case REVERT => stmts += RevertStmt(pop(), pop())
         case SUICIDE => stmts += SelfdestructStmt(pop())
       }
     }
