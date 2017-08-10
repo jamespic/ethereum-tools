@@ -1,5 +1,7 @@
 package io.github.jamespic.ethereum_tools.decompiler.control_flow
 
+import scala.util.control.NoStackTrace
+
 object Func {
   case class FuncEntry(address: Int, inputs: Int, outputs: Int) {
     override def toString = f"FuncEntry($address%x, $inputs%d, $outputs%d"
@@ -9,8 +11,9 @@ object Func {
   }
   case class FuncInfo(knownFunctions: Set[FuncEntry], callSignatures: Set[SignatureHint])
 
+  private case class VisitedState(nextAddress: Int, blocksInStack: Set[Block])
+
   def identifyFunctionsByReturn(graph: ControlGraph): FuncInfo = {
-    case class VisitedState(nextAddress: Int, blocksInStack: Set[Block])
     case class WalkResult(
       shouldUnwind: Boolean,
       visitedStates: Set[VisitedState],
@@ -92,7 +95,39 @@ object Func {
     FuncInfo(knownFunctionLocations, signatureHints)
   }
 
-  //FIXME: Identify non-halting functions by shared jumps
+  def identifyExtraFunctionsBySharing(graph: ControlGraph, knownFunctions: Set[Int]): Set[Int] = {
+    case class NewFunction(address: Int) extends RuntimeException with NoStackTrace
+    var visitedStates = Set.empty[VisitedState]
+    var blockOwners = Map.empty[Int, Int]
+    try {
+      for (currentFunction <- knownFunctions) {
+        def walk(
+          currentBlock: Block,
+          stateChange: StateChange = StateChange(),
+          blocksInStack: Set[Block] = Set.empty): Unit = {
+            val newBlocksInStack = blocksInStack + currentBlock
+            val newStateChange = stateChange >> currentBlock.stateChange
+            blockOwners.get(currentBlock.address) match {
+              case Some(`currentFunction`) => // Pass
+              case None => blockOwners += currentBlock.address -> currentFunction
+              case _ => throw NewFunction(currentBlock.address)
+            }
+            for {
+              nextBlock <- graph.exitBlocks(newStateChange.exitPoint)
+              nextVisitedState = VisitedState(nextBlock.address, newBlocksInStack)
+              if !(visitedStates contains nextVisitedState) && !(knownFunctions contains nextBlock.address)
+            } {
+              visitedStates += nextVisitedState
+              walk(nextBlock, newStateChange, newBlocksInStack)
+            }
+        }
+        walk(graph.blockByAddress(currentFunction))
+      }
+      Set.empty[Int]
+    } catch {
+      case NewFunction(n) => identifyExtraFunctionsBySharing(graph, knownFunctions + n) + n
+    }
+  }
 }
 
 case class Func(address: Int, code: ControlGraph, inputs: Int, outputs: Int)
