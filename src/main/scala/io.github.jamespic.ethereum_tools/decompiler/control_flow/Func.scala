@@ -102,30 +102,56 @@ object Func {
     try {
       for (currentFunction <- knownFunctions) {
         def walk(
-          currentBlock: Block,
-          stateChange: StateChange = StateChange(),
-          blocksInStack: Set[Block] = Set.empty): Unit = {
-            val newBlocksInStack = blocksInStack + currentBlock
-            val newStateChange = stateChange >> currentBlock.stateChange
-            blockOwners.get(currentBlock.address) match {
-              case Some(`currentFunction`) => // Pass
-              case None => blockOwners += currentBlock.address -> currentFunction
-              case _ => throw NewFunction(currentBlock.address)
-            }
-            for {
-              nextBlock <- graph.exitBlocks(newStateChange.exitPoint)
-              nextVisitedState = VisitedState(nextBlock.address, newBlocksInStack)
-              if !(visitedStates contains nextVisitedState) && !(knownFunctions contains nextBlock.address)
-            } {
-              visitedStates += nextVisitedState
-              walk(nextBlock, newStateChange, newBlocksInStack)
-            }
+            currentBlock: Block,
+            stateChange: StateChange = StateChange(),
+            blocksInStack: Set[Block] = Set.empty): Unit = {
+          val newBlocksInStack = blocksInStack + currentBlock
+          val newStateChange = stateChange >> currentBlock.stateChange
+          blockOwners.get(currentBlock.address) match {
+            case Some(`currentFunction`) => // Pass
+            case None => blockOwners += currentBlock.address -> currentFunction
+            case _ => throw NewFunction(currentBlock.address)
+          }
+          for {
+            nextBlock <- graph.exitBlocks(newStateChange.exitPoint)
+            nextVisitedState = VisitedState(nextBlock.address, newBlocksInStack)
+            if !(visitedStates contains nextVisitedState) && !(knownFunctions contains nextBlock.address)
+          } {
+            visitedStates += nextVisitedState
+            walk(nextBlock, newStateChange, newBlocksInStack)
+          }
         }
         walk(graph.blockByAddress(currentFunction))
       }
       Set.empty[Int]
     } catch {
       case NewFunction(n) => identifyExtraFunctionsBySharing(graph, knownFunctions + n) + n
+    }
+  }
+
+  def guessUnknownFuncInfo(graph: ControlGraph, knownFunctions: Set[Int], unknownFunctions: Set[Int]): Set[FuncEntry] = {
+    val allFunctions = knownFunctions ++ unknownFunctions
+    for (startAddress <- unknownFunctions) yield {
+      var visitedStates = Set.empty[VisitedState]
+      // Find max epth
+      def walk(
+          currentBlock: Block,
+          stateChange: StateChange = StateChange(),
+          blocksInStack: Set[Block] = Set.empty): Int = {
+        val newBlocksInStack = blocksInStack + currentBlock
+        val newStateChange = stateChange >> currentBlock.stateChange
+        ((for {
+          nextBlock <- graph.exitBlocks(newStateChange.exitPoint)
+          nextVisitedState = VisitedState(nextBlock.address, newBlocksInStack)
+          if !(visitedStates contains nextVisitedState) && !(knownFunctions contains nextBlock.address)
+        } yield {
+          visitedStates += nextVisitedState
+          walk(nextBlock, newStateChange, newBlocksInStack)
+        }) + stateChange.stackState.thenIndex).max
+      }
+      val maxDepth = walk(graph.blockByAddress(startAddress))
+      // Guess if it doesn't return, it's probably a void
+      FuncEntry(startAddress, maxDepth, 0)
     }
   }
 }
