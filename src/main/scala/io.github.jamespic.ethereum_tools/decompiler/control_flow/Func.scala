@@ -147,7 +147,7 @@ object Func {
         } yield {
           visitedStates += nextVisitedState
           walk(nextBlock, newStateChange, newBlocksInStack)
-        }) + stateChange.stackState.thenIndex).max
+        }) + newStateChange.stackState.thenIndex).max
       }
       val maxDepth = walk(graph.blockByAddress(startAddress))
       // Guess if it doesn't return, it's probably a void

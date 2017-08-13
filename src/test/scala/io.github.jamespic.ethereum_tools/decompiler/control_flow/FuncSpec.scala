@@ -66,8 +66,8 @@ class FuncSpec extends FreeSpec with Matchers {
     "guessUnknownFunctionInfo" - {
       "should guess FuncEntries for non-returning functions" in {
         val a = block(4, ConstJump(6), StackState(Nil, 1))
-        val b = block(6, Throw, StackState(List(ConstExpr(6)), 2))
-        val c = block(8, ConditionalExit(ConstJump(2), Throw), StackState(Nil, 2))
+        val b = block(6, Throw, StackState(List(ConstExpr(6)), 1))
+        val c = block(8, ConditionalExit(ConstJump(2), Throw), StackState(Nil, 1))
         val d = block(2, Halt, StackState())
         val graph = ControlGraph(a, b, c, d)
         val result = Func.guessUnknownFuncInfo(graph, Set(2), Set(4, 8))
