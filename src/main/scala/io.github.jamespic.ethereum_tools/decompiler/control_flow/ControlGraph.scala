@@ -16,10 +16,12 @@ case class ControlGraph(blocks: SortedSet[Block]) {
     blocks.map(block => (block.address, block)).toMap
   }
 
-  def exitBlocks(exitPoint: ExitPoint): Set[Block] = exitPoint match {
-    case ConstJump(n) => blockByAddress.get(n).toSet
+  def exitBlocks(exitPoint: ExitPoint): Set[Block] = exitAddresses(exitPoint) flatMap (blockByAddress.get)
+
+  def exitAddresses(exitPoint: ExitPoint): Set[Int] = exitPoint match {
+    case ConstJump(n) => Set(n)
     case StackJump(_)|Halt|Throw|FunctionReturn(_) => Set.empty
-    case ConditionalExit(trueExit, falseExit) => exitBlocks(trueExit) ++ exitBlocks(falseExit)
+    case ConditionalExit(trueExit, falseExit) => exitAddresses(trueExit) ++ exitAddresses(falseExit)
     case CalculatedJump => Set.empty
   }
 

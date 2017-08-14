@@ -33,7 +33,7 @@ object Decompiler {
     val blocks = Block.identifyBasicBlocks(instructions)
     val controlGraph = ControlGraph(blocks)
     val rewritten = GraphRewriteRules.stripUnreachable(controlGraph).getOrElse(controlGraph)
-    println(Func.identifyFunctionsByReturn(rewritten))
+    println(Func.splitIntoFunctions(rewritten))
     rewritten
   }
 }

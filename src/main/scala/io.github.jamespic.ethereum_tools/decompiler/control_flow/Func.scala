@@ -1,10 +1,14 @@
 package io.github.jamespic.ethereum_tools.decompiler.control_flow
 
+import scala.collection.immutable.SortedSet
 import scala.util.control.NoStackTrace
 
 object Func {
   case class FuncEntry(address: Int, inputs: Int, outputs: Int) {
     override def toString = f"FuncEntry($address%x, $inputs%d, $outputs%d"
+    def effectiveStateChange = StateChange(
+      StackJump(inputs), StackState(List.fill(outputs)(CalculatedExpr), inputs)
+    )
   }
   case class SignatureHint(callingBlockAddress: Int, inputs: Int, outputs: Int, returnAddress: Int) {
     override def toString = f"SignatureHint($callingBlockAddress%x, $inputs%d, $outputs%d, $returnAddress%x)"
@@ -130,6 +134,7 @@ object Func {
   }
 
   def guessUnknownFuncInfo(graph: ControlGraph, knownFunctions: Set[Int], unknownFunctions: Set[Int]): Set[FuncEntry] = {
+    // FIXME: Modify this to return FuncInfo
     val allFunctions = knownFunctions ++ unknownFunctions
     for (startAddress <- unknownFunctions) yield {
       var visitedStates = Set.empty[VisitedState]
@@ -153,6 +158,53 @@ object Func {
       // Guess if it doesn't return, it's probably a void
       FuncEntry(startAddress, maxDepth, 0)
     }
+  }
+
+  def splitControlGraph(graph: ControlGraph, functions: Set[FuncEntry]): Set[Func] = {
+    // FIXME: Include "everything reachable" fallback for calculated jump
+    val funcsByAddress = functions.map(f => f.address -> f).toMap
+    for (f <- functions) yield {
+      var visitedStates = Set.empty[VisitedState]
+      // Find max epth
+      def walk(
+          currentBlock: Block,
+          stateChange: StateChange = StateChange(),
+          blocksInStack: Set[Block] = Set.empty): Set[Block] = {
+        val newBlocksInStack = blocksInStack + currentBlock
+        val newStateChange = stateChange >> currentBlock.stateChange
+        (for {
+          nextAddress <- graph.exitAddresses(newStateChange.exitPoint)
+          nextVisitedState = VisitedState(nextAddress, newBlocksInStack)
+          if !(visitedStates contains nextVisitedState)
+        } yield {
+          visitedStates += nextVisitedState
+          funcsByAddress.get(nextAddress) match {
+            case Some(g) =>
+              val functionCallStateChange = newStateChange >> g.effectiveStateChange
+              for (
+                nextBlock <- graph.exitBlocks(functionCallStateChange.exitPoint);
+                block <- walk(nextBlock, functionCallStateChange, newBlocksInStack)
+              ) yield block
+            case None =>
+              for (
+                nextBlock <- graph.blockByAddress.get(nextAddress).toSet[Block];
+                block <- walk(nextBlock, newStateChange, newBlocksInStack)
+              ) yield block
+          }
+        }).flatten + currentBlock
+      }
+      Func(f.address, ControlGraph(walk(graph.blockByAddress(f.address)).to[SortedSet]), f.inputs, f.outputs)
+    }
+  }
+
+  val fallbackFunction = FuncEntry(0, 0, 0)
+
+  def splitIntoFunctions(graph: ControlGraph): (Set[Func], Set[SignatureHint]) = {
+    val FuncInfo(returningFunctions, signatureHints) = identifyFunctionsByReturn(graph)
+    val knownAddresses = returningFunctions map (_.address)
+    val extraFunctions = identifyExtraFunctionsBySharing(graph, knownAddresses)
+    val extraFunctionInfo = guessUnknownFuncInfo(graph, knownAddresses, extraFunctions)
+    (splitControlGraph(graph, returningFunctions ++ extraFunctionInfo + fallbackFunction), signatureHints)
   }
 }
 
