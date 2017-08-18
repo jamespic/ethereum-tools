@@ -47,7 +47,7 @@ case class GtExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a > $b)", a, b)
 case class SltExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a <$$ $b)", a, b)
 case class SgtExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a >$$ $b)", a, b)
 case class EqExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a == $b)", a, b)
-case class IszeroExpr(a: Expr) extends MaybeDirtyExpr(s"($a != 0)", a)
+case class IszeroExpr(a: Expr) extends MaybeDirtyExpr(s"($a == 0)", a)
 case class AndExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a & $b)", a, b)
 case class OrExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a | $b)", a, b)
 case class XorExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a ^ $b)", a, b)
@@ -81,7 +81,7 @@ case class SstoreStmt(a: Expr, b: Expr) extends StrRepr(s"STORAGE[$a] = $b;") wi
 case object PcExpr extends StrRepr("__PROGRAM_COUNTER__") with CleanExpr
 case object MsizeExpr extends StrRepr("MEMORY.length") with DirtyExpr
 case object GasExpr extends StrRepr("msg.gas") with DirtyExpr
-case class JumpDestStmt(i: Int) extends StrRepr(s"TAG_$i:") with Stmt
+case class JumpDestStmt(i: Int) extends StrRepr(f"TAG_$i%x:") with Stmt
 case class ConstExpr(a: BigInt) extends StrRepr(f"0x$a%x") with CleanExpr
 case class LogStmt(a: Expr, b: Expr, topics: Expr*) extends StrRepr(s"LOG(${topics.mkString(", ")}, MEMORY[$a..($a + $b)])") with Stmt
 case class CreateStmt(returnVar: VarExpr, a: Expr, b: Expr, c: Expr) extends Stmt {

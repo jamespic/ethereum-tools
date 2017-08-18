@@ -161,17 +161,18 @@ object Func {
   }
 
   def splitControlGraph(graph: ControlGraph, functions: Set[FuncEntry]): Set[Func] = {
-    // FIXME: Include "everything reachable" fallback for calculated jump
     val funcsByAddress = functions.map(f => f.address -> f).toMap
-    for (f <- functions) yield {
+    var calculatedJumpSeen = false
+    val funcs = for (f <- functions) yield {
       var visitedStates = Set.empty[VisitedState]
-      // Find max epth
+      // Find max depth
       def walk(
           currentBlock: Block,
           stateChange: StateChange = StateChange(),
           blocksInStack: Set[Block] = Set.empty): Set[Block] = {
         val newBlocksInStack = blocksInStack + currentBlock
         val newStateChange = stateChange >> currentBlock.stateChange
+        if (newStateChange.exitPoint == CalculatedJump) calculatedJumpSeen = true
         (for {
           nextAddress <- graph.exitAddresses(newStateChange.exitPoint)
           nextVisitedState = VisitedState(nextAddress, newBlocksInStack)
@@ -195,6 +196,16 @@ object Func {
       }
       Func(f.address, ControlGraph(walk(graph.blockByAddress(f.address)).to[SortedSet]), f.inputs, f.outputs)
     }
+    val stubFuncs = if (calculatedJumpSeen) {
+      val looseBlocks = graph.blocks -- (funcs flatMap (_.code.blocks))
+      for (block <- looseBlocks) yield Func(
+        block.address,
+        ControlGraph(block),
+        block.stateChange.stackState.thenIndex,
+        block.stateChange.stackState.vars.length
+      )
+    } else Set.empty[Func]
+    funcs ++ stubFuncs
   }
 
   val fallbackFunction = FuncEntry(0, 0, 0)
@@ -208,4 +219,6 @@ object Func {
   }
 }
 
-case class Func(address: Int, code: ControlGraph, inputs: Int, outputs: Int)
+case class Func(address: Int, code: ControlGraph, inputs: Int, outputs: Int) {
+  override def toString = f"function$address%x($inputs inputs) -> ($outputs outputs) {code}\n\n"
+}
