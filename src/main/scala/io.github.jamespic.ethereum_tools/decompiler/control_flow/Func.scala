@@ -10,9 +10,6 @@ object Func {
       StackJump(inputs), StackState(List.fill(outputs)(CalculatedExpr), inputs)
     )
   }
-  case class SignatureHint(callingBlockAddress: Int, inputs: Int, outputs: Int, returnAddress: Int) {
-    override def toString = f"SignatureHint($callingBlockAddress%x, $inputs%d, $outputs%d, $returnAddress%x)"
-  }
   case class FuncInfo(knownFunctions: Set[FuncEntry], callSignatures: Set[SignatureHint])
 
   private case class VisitedState(nextAddress: Int, blocksInStack: Set[Block])
@@ -96,13 +93,14 @@ object Func {
     val WalkResult(shouldUnwind, _, knownFunctionLocations, unwindingFunctions, signatureHints) = walk(graph.blockByAddress(0))
     assert(shouldUnwind, "This contract doesn't seem to halt - this may indicate a problem with decompilation")
     assert(unwindingFunctions.isEmpty, "Not all function returns have been accounted for")
-    FuncInfo(knownFunctionLocations, signatureHints)
+    FuncInfo(knownFunctionLocations + fallbackFunction, signatureHints)
   }
 
-  def identifyExtraFunctionsBySharing(graph: ControlGraph, knownFunctions: Set[Int]): Set[Int] = {
+  def identifyExtraFunctionsByAnomalies(graph: ControlGraph, knownFunctions: Set[Int]): Set[Int] = {
     case class NewFunction(address: Int) extends RuntimeException with NoStackTrace
     var visitedStates = Set.empty[VisitedState]
     var blockOwners = Map.empty[Int, Int]
+    var stackHeights = Map.empty[Int, Int]
     try {
       for (currentFunction <- knownFunctions) {
         def walk(
@@ -121,6 +119,11 @@ object Func {
             nextVisitedState = VisitedState(nextBlock.address, newBlocksInStack)
             if !(visitedStates contains nextVisitedState) && !(knownFunctions contains nextBlock.address)
           } {
+            stackHeights.get(nextBlock.address) match {
+              case Some(newStateChange.stackState.height) => // Pass
+              case None => stackHeights += nextBlock.address -> newStateChange.stackState.height
+              case _ => throw NewFunction(nextBlock.address) // Incompatible stack height
+            }
             visitedStates += nextVisitedState
             walk(nextBlock, newStateChange, newBlocksInStack)
           }
@@ -129,7 +132,7 @@ object Func {
       }
       Set.empty[Int]
     } catch {
-      case NewFunction(n) => identifyExtraFunctionsBySharing(graph, knownFunctions + n) + n
+      case NewFunction(n) => identifyExtraFunctionsByAnomalies(graph, knownFunctions + n) + n
     }
   }
 
@@ -165,36 +168,41 @@ object Func {
     var calculatedJumpSeen = false
     val funcs = for (f <- functions) yield {
       var visitedStates = Set.empty[VisitedState]
-      // Find max depth
+      var startingStacks = Map.empty[Int, StackState]
+      def logStartingState(address: Int, stateChange: StackState) {
+        if (graph.blockByAddress contains address) {
+          startingStacks += address -> (startingStacks.get(address) map (_ & stateChange) getOrElse stateChange)
+        }
+      }
       def walk(
-          currentBlock: Block,
+          address: Int,
           stateChange: StateChange = StateChange(),
           blocksInStack: Set[Block] = Set.empty): Set[Block] = {
-        val newBlocksInStack = blocksInStack + currentBlock
-        val newStateChange = stateChange >> currentBlock.stateChange
-        if (newStateChange.exitPoint == CalculatedJump) calculatedJumpSeen = true
-        (for {
-          nextAddress <- graph.exitAddresses(newStateChange.exitPoint)
-          nextVisitedState = VisitedState(nextAddress, newBlocksInStack)
-          if !(visitedStates contains nextVisitedState)
-        } yield {
-          visitedStates += nextVisitedState
-          funcsByAddress.get(nextAddress) match {
-            case Some(g) =>
-              val functionCallStateChange = newStateChange >> g.effectiveStateChange
-              for (
-                nextBlock <- graph.exitBlocks(functionCallStateChange.exitPoint);
-                block <- walk(nextBlock, functionCallStateChange, newBlocksInStack)
-              ) yield block
-            case None =>
-              for (
-                nextBlock <- graph.blockByAddress.get(nextAddress).toSet[Block];
-                block <- walk(nextBlock, newStateChange, newBlocksInStack)
-              ) yield block
-          }
-        }).flatten + currentBlock
+        funcsByAddress.get(address) match {
+          case Some(g) if g != f =>
+            val functionCallStateChange = stateChange >> g.effectiveStateChange
+            for (
+              newAddress <- graph.exitAddresses(functionCallStateChange.exitPoint);
+              block <- walk(newAddress, functionCallStateChange, blocksInStack)
+            ) yield block
+          case _ =>
+            (for (currentBlock <- graph.blockByAddress.get(address).toSet[Block]) yield {
+              logStartingState(address, stateChange.stackState)
+              val newBlocksInStack = blocksInStack + currentBlock
+              val newStateChange = stateChange >> currentBlock.stateChange
+              if (newStateChange.exitPoint == CalculatedJump) calculatedJumpSeen = true
+              (for {
+                nextAddress <- graph.exitAddresses(newStateChange.exitPoint)
+                nextVisitedState = VisitedState(nextAddress, newBlocksInStack)
+                if !(visitedStates contains nextVisitedState)
+                _ = (visitedStates += nextVisitedState)
+                block <- walk(nextAddress, newStateChange, newBlocksInStack)
+              } yield block) + currentBlock
+            }).flatten
+
+        }
       }
-      Func(f.address, ControlGraph(walk(graph.blockByAddress(f.address)).to[SortedSet]), f.inputs, f.outputs)
+      Func(f.address, ControlGraph(walk(f.address).to[SortedSet]), f.inputs, f.outputs, startingStacks)
     }
     val stubFuncs = if (calculatedJumpSeen) {
       val looseBlocks = graph.blocks -- (funcs flatMap (_.code.blocks))
@@ -202,7 +210,8 @@ object Func {
         block.address,
         ControlGraph(block),
         block.stateChange.stackState.thenIndex,
-        block.stateChange.stackState.vars.length
+        block.stateChange.stackState.vars.length,
+        Map(block.address -> StackState())
       )
     } else Set.empty[Func]
     funcs ++ stubFuncs
@@ -212,13 +221,17 @@ object Func {
 
   def splitIntoFunctions(graph: ControlGraph): (Set[Func], Set[SignatureHint]) = {
     val FuncInfo(returningFunctions, signatureHints) = identifyFunctionsByReturn(graph)
-    val knownAddresses = returningFunctions map (_.address)
-    val extraFunctions = identifyExtraFunctionsBySharing(graph, knownAddresses)
+    val knownAddresses = (returningFunctions) map (_.address)
+    val extraFunctions = identifyExtraFunctionsByAnomalies(graph, knownAddresses)
     val extraFunctionInfo = guessUnknownFuncInfo(graph, knownAddresses, extraFunctions)
-    (splitControlGraph(graph, returningFunctions ++ extraFunctionInfo + fallbackFunction), signatureHints)
+    (splitControlGraph(graph, returningFunctions ++ extraFunctionInfo), signatureHints)
   }
 }
 
-case class Func(address: Int, code: ControlGraph, inputs: Int, outputs: Int) {
-  override def toString = f"function$address%x($inputs inputs) -> ($outputs outputs) {code}\n\n"
+case class SignatureHint(callingBlockAddress: Int, inputs: Int, outputs: Int, returnAddress: Int) {
+  override def toString = f"SignatureHint($callingBlockAddress%x, $inputs%d, $outputs%d, $returnAddress%x)"
+}
+
+case class Func(address: Int, code: ControlGraph, inputs: Int, outputs: Int, startingStacks: Map[Int, StackState]) {
+  override def toString = f"function$address%x($inputs inputs) -> ($outputs outputs) {$code}\n\n"
 }

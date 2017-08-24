@@ -5,9 +5,9 @@ import java.nio.charset.StandardCharsets.UTF_8
 import javax.xml.bind.DatatypeConverter
 
 import org.ethereum.util.blockchain.StandaloneBlockchain
-
 import io.github.jamespic.ethereum_tools.Bytecode
-import io.github.jamespic.ethereum_tools.decompiler.control_flow.{Block, ControlGraph, GraphRewriteRules, Func}
+import io.github.jamespic.ethereum_tools.decompiler.control_flow.{Block, ControlGraph, Func, GraphRewriteRules}
+import io.github.jamespic.ethereum_tools.decompiler.data_flow.AST
 
 
 object Decompiler {
@@ -32,8 +32,10 @@ object Decompiler {
     val instructions = Bytecode.parse(bytes)
     val blocks = Block.identifyBasicBlocks(instructions)
     val controlGraph = ControlGraph(blocks)
-    val rewritten = GraphRewriteRules.stripUnreachable(controlGraph).getOrElse(controlGraph)
-    println(Func.splitIntoFunctions(rewritten))
-    rewritten
+    val (functions, signatureHints) = Func.splitIntoFunctions(controlGraph)
+    AST.funcsToAst(functions, signatureHints)
+//    val rewritten = GraphRewriteRules.stripUnreachable(controlGraph).getOrElse(controlGraph)
+//    println(Func.splitIntoFunctions(rewritten))
+//    rewritten
   }
 }

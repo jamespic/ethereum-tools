@@ -47,7 +47,6 @@ class StateChangeSpec extends FreeSpec with Matchers {
       }
       "should refuse to unify incompatible simple exit points" in {
         merging(ConstJump(5), ConstJump(4)).shouldFail
-        merging(Halt, FunctionReturn(3)).shouldFail
         merging(StackJump(2), StackJump(3)).shouldFail
       }
       "should unify anything with Throw" in {
@@ -57,12 +56,8 @@ class StateChangeSpec extends FreeSpec with Matchers {
       "should unify compatible exit points when one or more can return the contract early" in {
         merging(ConstJump(4), Halt).shouldGive(ConstJump(4))
       }
-      "should unify compatible exit points when one or more can return the function early" in {
-        merging(ConstJump(4), FunctionReturn(2)).shouldGive(ConstJump(4))
-      }
       "should refuse to unify incompatible exit points even in conditional jumps" in {
         merging(ConstJump(3), ConditionalExit(Halt, ConstJump(4))).shouldFail
-        merging(StackJump(3), ConditionalExit(FunctionReturn(2), StackJump(4))).shouldFail
       }
       "should combine compatible elements from two merged stacks" in {
         val stack1 = StackState(

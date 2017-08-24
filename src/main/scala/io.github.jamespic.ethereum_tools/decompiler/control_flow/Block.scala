@@ -78,7 +78,7 @@ object Block {
 
     }
     for ((i, op) <- instructions) {
-      if (op == JUMPDEST) finishBlock(ConstJump(i))
+      if (op == JUMPDEST) finishBlock(Fallthrough(i))
 
       var (stackHead, _) = currentStack.pop
       if (blockStart == -1) blockStart = i
@@ -97,9 +97,9 @@ object Block {
         case (JUMP, CalculatedExpr) =>
           finishBlock(CalculatedJump)
         case (JUMPI, StackVar(n)) =>
-          finishBlock(ConditionalExit(StackJump(n), ConstJump(i + op.opcodeSize)))
+          finishBlock(ConditionalExit(StackJump(n), Fallthrough(i + op.opcodeSize)))
         case (JUMPI, ConstExpr(n)) =>
-          finishBlock(ConditionalExit(ConstJump(n.toInt), ConstJump(i + op.opcodeSize)))
+          finishBlock(ConditionalExit(ConstJump(n.toInt), Fallthrough(i + op.opcodeSize)))
         case (JUMPI, CalculatedExpr) =>
           finishBlock(ConditionalExit(CalculatedJump, ConstJump(i + op.opcodeSize)))
         case _ => // Continue

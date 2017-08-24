@@ -11,20 +11,10 @@ case class StateChange(exitPoint: ExitPoint = ConstJump(0), stackState: StackSta
 
 object StateChange {
   def merge(a: StateChange, b: StateChange): Option[StateChange] = {
-    if (a.stackState.height != b.stackState.height) None
-    else {
-      val stackState = {
-        val minDepth = Math.max(a.stackState.vars.length, b.stackState.vars.length)
-        val aStack = a.stackState.ensureDepth(minDepth)
-        val bStack = b.stackState.ensureDepth(minDepth)
-        assert(aStack.thenIndex == bStack.thenIndex)
-        val newVars = for ((x, y) <- aStack.vars zip bStack.vars) yield {
-          if (x == y) x else CalculatedExpr
-        }
-        StackState(newVars, aStack.thenIndex)
-      }
-      for (exitPoint <- unifyExitPoints(a.exitPoint, b.exitPoint)) yield StateChange(exitPoint, stackState)
-    }
+    for {
+      stackState <- StackState.merge(a.stackState, b.stackState)
+      exitPoint <- unifyExitPoints(a.exitPoint, b.exitPoint)
+    } yield StateChange(exitPoint, stackState)
   }
 
   private def unifyExitPoints(x: ExitPoint, y: ExitPoint): Option[ExitPoint] = (x, y) match {
@@ -36,11 +26,8 @@ object StateChange {
     case (x , Throw) => Some(x)
     case (Throw, x) => Some(x)
 
-    case (Halt, FunctionReturn(_)) => None
-    case (FunctionReturn(_), Halt) => None
-
-    case (x , Halt|FunctionReturn(_)) => Some(x)
-    case (Halt|FunctionReturn(_), x) => Some(x)
+    case (x , Halt) => Some(x)
+    case (Halt, x) => Some(x)
 
     case _ => None
   }
@@ -58,7 +45,7 @@ object StateChange {
     )
 
     def fixUpReturnDepth(exitPoint: ExitPoint): ExitPoint = exitPoint match {
-      case ConstJump(_)|CalculatedJump|Halt|Throw => exitPoint
+      case ConstJump(_)|Fallthrough(_)|CalculatedJump|Halt|Throw => exitPoint
       case StackJump(depth) =>
         aStack(depth) match {
           case ConstExpr(n) => ConstJump(n.toInt)

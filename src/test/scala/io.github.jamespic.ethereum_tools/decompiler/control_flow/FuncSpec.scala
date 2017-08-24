@@ -59,7 +59,7 @@ class FuncSpec extends FreeSpec with Matchers {
         // Unknown function 1
         val e = block(8, Throw, StackState())
         val graph = ControlGraph(a, b, c, d, e)
-        val result = Func.identifyExtraFunctionsBySharing(graph, Set(0, 4))
+        val result = Func.identifyExtraFunctionsByAnomalies(graph, Set(0, 4))
         result should equal(Set(8))
       }
     }

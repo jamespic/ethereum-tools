@@ -40,8 +40,8 @@ case class StackState(vars: List[Expr] = Nil, thenIndex: Int = 0) {
       val (vars, newStack) = pop(n)
       newStack.push(vars.last +: vars: _*)
     case SWAP(n) =>
-      val (vars :+ last, newStack) = pop(n + 1)
-      newStack.push(last +: vars: _*)
+      val (head +: body :+ tail, newStack) = pop(n + 1)
+      newStack.push(tail +: body :+ head : _*)
     case _ =>
       val (consumed, newStack) = pop(op.inputs)
       newStack.push(Seq.fill(op.outputs)(CalculatedExpr): _*)
@@ -55,6 +55,23 @@ case class StackState(vars: List[Expr] = Nil, thenIndex: Int = 0) {
   }
 
   lazy val height = vars.length - thenIndex
+  def &(that: StackState) = StackState.merge(this, that).get
+}
+
+object StackState {
+  def merge(a: StackState, b: StackState): Option[StackState] = {
+    if (a.height != b.height) None
+    else {
+      val minDepth = Math.max(a.vars.length, b.vars.length)
+      val aStack = a.ensureDepth(minDepth)
+      val bStack = b.ensureDepth(minDepth)
+      assert(aStack.thenIndex == bStack.thenIndex)
+      val newVars = for ((x, y) <- aStack.vars zip bStack.vars) yield {
+        if (x == y) x else CalculatedExpr
+      }
+      Some(StackState(newVars, aStack.thenIndex))
+    }
+  }
 }
 
 sealed trait Expr
