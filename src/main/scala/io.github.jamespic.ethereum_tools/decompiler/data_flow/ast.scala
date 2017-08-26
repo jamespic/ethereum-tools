@@ -7,6 +7,7 @@ sealed trait Stmt
 sealed trait Expr {
   def dirty: Boolean
 }
+sealed trait BoolExpr extends Expr
 sealed trait LValue extends Expr
 sealed trait CleanExpr extends Expr {
   override def dirty = false
@@ -23,13 +24,18 @@ abstract class MaybeDirtyExpr(repr: String, elements: Expr*) extends Expr {
 }
 
 case class VarExpr(n: Int) extends StrRepr(s"var_$n") with CleanExpr with LValue
-case object OkVarExpr extends StrRepr("ok") with DirtyExpr with LValue
+case object OkVarExpr extends StrRepr("ok") with DirtyExpr with LValue with BoolExpr
 case object NewContractVar extends StrRepr("newContract") with DirtyExpr with LValue
 case class ArgExpr(n: Int) extends StrRepr(s"arg_$n") with CleanExpr with LValue
 case object ReturnLocationExpr extends StrRepr("__RETURN_POINTER__") with CleanExpr
 case class SetStmt(varExp: LValue, value: Expr) extends StrRepr(s"$varExp = $value;") with Stmt
 case class SetStmtList(sets: Seq[SetStmt]) extends Stmt {
-  override def toString = sets.map(_.varExp).mkString("(", ", ", ")") + " = " + sets.map(_.value).mkString("(", ", ", ")") + ";"
+  override def toString = sets.size match {
+    case 0 => ""
+    case 1 => sets.head.toString
+    case _ =>
+      sets.map(_.varExp).mkString("(", ", ", ")") + " = " + sets.map(_.value).mkString("(", ", ", ")") + ";"
+  }
 }
 case class StmtList(stmts: List[Stmt]) extends StrRepr(stmts.mkString("{\n  ", "\n  ", "}")) with Stmt
 
@@ -45,48 +51,42 @@ case class AddmodExpr(a: Expr, b: Expr, c: Expr) extends MaybeDirtyExpr(s"addmod
 case class MulmodExpr(a: Expr, b: Expr, c: Expr) extends MaybeDirtyExpr(s"mulmod($a, $b, $c)", a, b, c)
 case class ExpExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a ** $b)", a, b)
 case class SignExtendExpr(a: Expr) extends MaybeDirtyExpr(s"SIGNEXTEND($a)", a)
-case class LtExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a < $b)", a, b)
-case class GtExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a > $b)", a, b)
-case class SltExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a <$$ $b)", a, b)
-case class SgtExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a >$$ $b)", a, b)
-case class EqExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a == $b)", a, b)
-case class IszeroExpr(a: Expr) extends MaybeDirtyExpr(s"($a == 0)", a)
+case class LtExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a < $b)", a, b) with BoolExpr
+case class GtExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a > $b)", a, b) with BoolExpr
+case class SltExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a <$$ $b)", a, b) with BoolExpr
+case class SgtExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a >$$ $b)", a, b) with BoolExpr
+case class EqExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a == $b)", a, b) with BoolExpr
 case class AndExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a & $b)", a, b)
 case class OrExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a | $b)", a, b)
 case class XorExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"($a ^ $b)", a, b)
-case class NotExpr(a: Expr) extends MaybeDirtyExpr(s"~$a", a)
+case class BitwiseNotExpr(a: Expr) extends MaybeDirtyExpr(s"~$a", a)
+case class NotExpr(a: Expr) extends MaybeDirtyExpr(s"!$a") with BoolExpr
 case class ByteExpr(a: Expr, b: Expr) extends MaybeDirtyExpr(s"bytes32($a)[$b]")
-case class SHA3Expr(a:Expr, b: Expr) extends StrRepr(s"sha3(MEMORY[$a..($b + $a)])") with DirtyExpr
+case class SHA3Expr(exprs: Expr*) extends StrRepr(s"sha3(${exprs.mkString(", ")}])") with DirtyExpr
 case object AddressExpr extends StrRepr("this") with CleanExpr
 case class BalanceExpr(a: Expr) extends StrRepr(s"$a.balance") with DirtyExpr
 case object OriginExpr extends StrRepr("tx.origin") with CleanExpr
 case object CallerExpr extends StrRepr("msg.sender") with CleanExpr
 case object CallvalueExpr extends StrRepr("msg.value") with CleanExpr
-case class CalldataloadExpr(a: Expr) extends StrRepr(s"msg.DATA[$a..$a+32]") with CleanExpr
 case object CalldatasizeExpr extends StrRepr("msg.data.length") with CleanExpr
-case class CalldatacopyStmt(a: Expr, b: Expr, c: Expr) extends StrRepr(s"MEMORY[$a..($a + $c)] = msg.DATA[$b..($b +$c)];") with Stmt
-case object CodesizeExpr extends StrRepr("this.CODE.length") with CleanExpr
-case class CodecopyStmt(a: Expr, b: Expr, c: Expr) extends StrRepr(s"MEMORY[$a..($a + $c)] = this.CODE[$b..($b +$c)];") with Stmt
+case class CalldataExpr(start: Expr, end: Expr) extends StrRepr(s"msg.DATA[$start..$end]") with CleanExpr
 case object GasPriceExpr extends StrRepr("tx.gasprice") with CleanExpr
-case class ExtcodesizeExpr(a: Expr) extends StrRepr(s"$a.CODE.length") with DirtyExpr
-case class ExtcodecopyStmt(a: Expr, b: Expr, c: Expr, d: Expr) extends StrRepr(s"MEMORY[$b..($b + $d)] = $a.CODE[$c..($d +$d)];") with Stmt
+case class CodesizeExpr(a: Expr) extends StrRepr(s"$a.CODE.length") with DirtyExpr
+case class CodeExpr(addr: Expr, start: Expr, end: Expr) extends StrRepr(s"$addr.CODE[$start..$end]") with DirtyExpr
 case class BlockhashExpr(a: Expr) extends StrRepr(s"block.blockhash($a)") with CleanExpr
 case object CoinbaseExpr extends StrRepr("block.coinbase") with CleanExpr
 case object TimestampExpr extends StrRepr("block.timestamp") with CleanExpr
 case object NumberExpr extends StrRepr("block.number") with CleanExpr
 case object DifficultyExpr extends StrRepr("block.difficulty") with CleanExpr
 case object GaslimitExpr extends StrRepr("block.gaslimit") with CleanExpr
-case class MloadExpr(a: Expr) extends StrRepr(s"MEMORY[$a..($a + 32)]") with DirtyExpr
-case class MstoreStmt(a: Expr, b: Expr) extends StrRepr(s"MEMORY[$a..($a + 32)] = $b;") with Stmt
-case class Mstore8Stmt(a: Expr, b: Expr) extends StrRepr(s"MEMORY[$a] = int8($b);") with Stmt
-case class SloadExpr(a: Expr) extends StrRepr(s"STORAGE[$a]") with DirtyExpr
-case class SstoreStmt(a: Expr, b: Expr) extends StrRepr(s"STORAGE[$a] = $b;") with Stmt
+case class MemoryExpr(start: Expr, end: Expr) extends StrRepr(s"MEMORY[$start..$end]") with DirtyExpr with LValue
+case class StorageExpr(a: Expr) extends StrRepr(s"STORAGE[$a]") with DirtyExpr with LValue
 case object PcExpr extends StrRepr("__PROGRAM_COUNTER__") with CleanExpr
 case object MsizeExpr extends StrRepr("MEMORY.length") with DirtyExpr
 case object GasExpr extends StrRepr("msg.gas") with DirtyExpr
 case class JumpDestStmt(i: Int) extends StrRepr(f"TAG_$i%x:") with Stmt
 case class ConstExpr(a: BigInt) extends StrRepr(f"0x$a%x") with CleanExpr
-case class LogStmt(a: Expr, b: Expr, topics: Expr*) extends StrRepr(s"LOG(${topics.mkString(", ")}, MEMORY[$a..($a + $b)])") with Stmt
+case class LogStmt(data: Expr, topics: Expr*) extends StrRepr(s"LOG(${topics.mkString(", ")}, $data)") with Stmt
 case class CreateStmt(returnVar: VarExpr, a: Expr, b: Expr, c: Expr) extends Stmt {
   override def toString = a match {
     case ConstExpr(n) if n == BigInt(0) => s"$returnVar = new MEMORY[$b..($b + $c)]();"
@@ -140,12 +140,14 @@ case class FunctionReturnStmt(exprs: Expr*) extends Stmt {
 case class FunctionCallStmt(name: String, inputs: List[Expr], outputs: List[LValue]) extends Stmt {
   def this(expr: Expr, inputs: List[Expr], outputs: List[LValue]) = {
     this(expr match {
-      case ConstExpr(n) => f"func_$n%x"
+      case ConstExpr(n) => f"func_$n%04x"
       case e => s"($e)"
     }, inputs, outputs)
   }
   override def toString = s"(${outputs.mkString(", ")}) = $name(${inputs.mkString(", ")})"
 }
+
+case class CommentStmt(content: String) extends StrRepr(s"// $content") with Stmt
 
 case class FunctionAST(name: String, inputs: Int, outputs: Int, stmts: List[Stmt]) {
   override def toString = {
@@ -156,8 +158,12 @@ case class FunctionAST(name: String, inputs: Int, outputs: Int, stmts: List[Stmt
   }
 }
 
+case object TrueExpr extends StrRepr("true") with CleanExpr with BoolExpr
+case object FalseExpr extends StrRepr("false") with CleanExpr with BoolExpr
+
 
 object AST {
+  private val IntSize = BigInt(2).pow(256)
   def funcsToAst(funcs: Set[Func], signatureHints: Set[SignatureHint]) = {
     for (Func(address, code, inputs, outputs, startingStates) <- funcs) yield {
       val startStacks = for ((addr, startStack) <- startingStates) yield {
@@ -169,7 +175,7 @@ object AST {
           case (CalculatedExpr, i) => VarExpr(normStack.vars.size - i)
         })
       }
-      FunctionAST(f"func_$address%x", inputs, outputs,
+      FunctionAST(f"func_$address%04x", inputs, outputs,
         for (BasicBlock(addr, instructions, stateChange) <- code.blocks.toList) yield {
           val startStack = startStacks.getOrElse(addr, Nil)
           var stmts = List.newBuilder[Stmt]
@@ -211,83 +217,127 @@ object AST {
                   GotoStmt(ConstExpr(n))
                 )
               case ConstExpr(n) if funcs.exists(_.address == n.toInt) =>
-                val func = funcs.find(_.address == n.toInt).get
-                val inputExprs = List.fill(func.inputs)(pop())
-                val outputExprs = List.fill(func.outputs)(newVar())
-                val returnExpr = pop()
                 flushStack()
-//                exprStack = outputExprs ::: exprStack
-                List(new FunctionCallStmt(ConstExpr(func.address), inputExprs, outputExprs)) ++ jumpStmtList(returnExpr)
+                val func = funcs.find(_.address == n.toInt).get
+                val inputExprs = List.fill(func.inputs)(pop()).reverse
+                val outputExprs = List.fill(math.max(func.outputs, 0))(newVar())
+                // FIXME Do output expressions need to go on the stack???
+                val returnExpr = pop()
+                val continueStmt =
+                  if (func.outputs >= 0) jumpStmtList(returnExpr)
+                  else List(CommentStmt("*probably* unreachable"), FunctionReturnStmt())
+
+                List(new FunctionCallStmt(ConstExpr(func.address), inputExprs, outputExprs)) ++ continueStmt
               case x =>
                 signatureHints collectFirst {
                   case SignatureHint(`address`, funcInputs, funcOutputs, returnAddr) =>
-                    val inputExprs = List.fill(funcInputs)(pop())
+                    val inputExprs = List.fill(funcInputs)(pop()).reverse
                     val outputExprs = List.fill(funcOutputs)(newVar())
+                    // FIXME Do output expressions need to go on the stack???
                     flushStack()
-//                    exprStack = outputExprs ::: exprStack
                     List(new FunctionCallStmt(x, inputExprs, outputExprs)) ++ jumpStmtList(ConstExpr(returnAddr))
                 } getOrElse {
-                  // Wild GOTO
-                  List(GotoStmt(x))
+                  List(
+                    CommentStmt("Wild GOTO"),
+                    GotoStmt(x)
+                  )
                 }
             }
+          }
+
+          def constFoldBinOp(constFunc: (BigInt, BigInt) => BigInt,
+                             fallbackFunc: (Expr, Expr) => Expr,
+                             unit: BigInt = null) = {
+            push(
+              (pop(), pop()) match {
+                case (a, ConstExpr(`unit`)) => a
+                case (ConstExpr(a), ConstExpr(b)) => ConstExpr(constFunc(a, b))
+                case (a, b) => fallbackFunc(a, b)
+              }
+            )
+          }
+
+          def addExprs(a: Expr, b: Expr) = (a, b) match {
+            case (ConstExpr(a), ConstExpr(b)) => ConstExpr((a + b) % IntSize)
+            case (a, b) => AddExpr(a, b)
           }
 
           for ((i, inst) <- instructions) {
             inst match {
               case STOP => stmts += StopStmt
-              case ADD => push(AddExpr(pop(), pop()))
-              case MUL => push(MulExpr(pop(), pop()))
-              case SUB => push(SubExpr(pop(), pop()))
-              case DIV => push(DivExpr(pop(), pop()))
-              case SDIV => push(SdivExpr(pop(), pop()))
-              case MOD => push(ModExpr(pop(), pop()))
-              case SMOD => push(SmodExpr(pop(), pop()))
+              case ADD => constFoldBinOp((a, b) => (a + b) % IntSize, AddExpr, 0)
+              case MUL => constFoldBinOp((a, b) => (a + b) % IntSize, MulExpr, 1)
+              case SUB => constFoldBinOp((a, b) => (a - b) % IntSize, SubExpr, 0)
+              case DIV => constFoldBinOp((a, b) => (a / b), DivExpr, 1)
+              case SDIV => push(SdivExpr(pop(), pop())) // Leave this uncommon case for now
+              case MOD => constFoldBinOp((a, b) => a % b, ModExpr)
+              case SMOD => push(SmodExpr(pop(), pop())) // Leave this uncommon case for now
               case ADDMOD => push(AddmodExpr(pop(), pop(), pop()))
               case MULMOD => push(MulmodExpr(pop(), pop(), pop()))
-              case EXP => push(ExpExpr(pop(), pop()))
+              case EXP => constFoldBinOp((a, b) => (a pow b.intValue) % IntSize, ExpExpr, 1)
               case SIGNEXTEND => push(SignExtendExpr(pop()))
               case LT => push(LtExpr(pop(), pop()))
               case GT => push(GtExpr(pop(), pop()))
               case SLT => push(SltExpr(pop(), pop()))
               case SGT => push(SgtExpr(pop(), pop()))
               case EQ => push(EqExpr(pop(), pop()))
-              case ISZERO => push(IszeroExpr(pop()))
-              case AND => push(AndExpr(pop(), pop()))
-              case OR => push(OrExpr(pop(), pop()))
-              case XOR => push(XorExpr(pop(), pop()))
-              case NOT => push(NotExpr(pop()))
+              case ISZERO => push(pop() match {
+                case a: BoolExpr => NotExpr(a)
+                case a => EqExpr(a, ConstExpr(0))
+              })
+              case AND => constFoldBinOp((a, b) => a & b, AndExpr, IntSize - 1)
+              case OR => constFoldBinOp((a, b) => a | b, OrExpr, 0)
+              case XOR => constFoldBinOp((a, b) => a ^ b, XorExpr, 0)
+              case NOT =>
+                push(pop() match {
+                  case ConstExpr(a) => ConstExpr(a ^ (IntSize - 1))
+                  case a => BitwiseNotExpr(a)
+                })
               case BYTE => push(ByteExpr(pop(), pop()))
-              case SHA3 => push(SHA3Expr(pop(), pop()))
+              case SHA3 =>
+                val memStart = pop()
+                val length = pop()
+                val memEnd = addExprs(memStart, length)
+
+                push(SHA3Expr(MemoryExpr(memStart, memEnd)))
               case ADDRESS => push(AddressExpr)
               case BALANCE => push(BalanceExpr(pop()))
               case ORIGIN => push(OriginExpr)
               case CALLER => push(CallerExpr)
               case CALLVALUE => push(CallvalueExpr)
-              case CALLDATALOAD => push(CalldataloadExpr(pop()))
+              case CALLDATALOAD =>
+                val start = pop()
+                val end = addExprs(start, ConstExpr(32))
+                push(CalldataExpr(start, end))
               case CALLDATASIZE => push(CalldatasizeExpr)
               case CALLDATACOPY =>
-                val a = pop()
-                val b = pop()
-                val c = pop()
                 flushStack()
-                stmts += CalldatacopyStmt(a, b, c)
-              case CODESIZE => push(CodesizeExpr)
+                val memStart = pop()
+                val codeStart = pop()
+                val length = pop()
+                val memEnd = addExprs(memStart, length)
+                val codeEnd = addExprs(codeStart, length)
+                stmts += SetStmt(MemoryExpr(memStart, memEnd), CalldataExpr(codeStart, codeEnd))
+              case CODESIZE => push(CodesizeExpr(AddressExpr))
               case CODECOPY =>
-                val a = pop()
-                val b = pop()
-                val c = pop()
                 flushStack()
-                stmts += CodecopyStmt(a, b, c)
+                val memStart = pop()
+                val codeStart = pop()
+                val length = pop()
+                val memEnd = addExprs(memStart, length)
+                val codeEnd = addExprs(codeStart, length)
+                stmts += SetStmt(MemoryExpr(memStart, memEnd), CodeExpr(AddressExpr, codeStart, codeEnd))
               case GASPRICE => push(GasPriceExpr)
-              case EXTCODESIZE => push(ExtcodesizeExpr(pop()))
+              case EXTCODESIZE => push(CodesizeExpr(pop()))
               case EXTCODECOPY =>
-                val a = pop()
-                val b = pop()
-                val c = pop()
-                val d = pop()
                 flushStack()
-                stmts += ExtcodecopyStmt(a, b, c, d)
+                val address = pop()
+                val memStart = pop()
+                val codeStart = pop()
+                val length = pop()
+                val memEnd = addExprs(memStart, length)
+                val codeEnd = addExprs(codeStart, length)
+                stmts += SetStmt(MemoryExpr(memStart, memEnd), CodeExpr(address, codeStart, codeEnd))
               case BLOCKHASH => push(BlockhashExpr(pop()))
               case COINBASE => push(CoinbaseExpr)
               case TIMESTAMP => push(TimestampExpr)
@@ -295,26 +345,32 @@ object AST {
               case DIFFICULTY => push(DifficultyExpr)
               case GASLIMIT => push(GaslimitExpr)
               case POP => pop()
-              case MLOAD => push(MloadExpr(pop()))
+              case MLOAD =>
+                val start = pop()
+                val end = addExprs(start, ConstExpr(32))
+                push(MemoryExpr(start, end))
               case MSTORE =>
-                val a = pop()
-                val b = pop()
                 flushStack()
-                stmts += MstoreStmt(a, b)
+                val start = pop()
+                val end = addExprs(start, ConstExpr(32))
+                val value = pop()
+                stmts += SetStmt(MemoryExpr(start, end), value)
               case MSTORE8 =>
-                val a = pop()
-                val b = pop()
                 flushStack()
-                stmts += Mstore8Stmt(a, b)
-              case SLOAD => push(SloadExpr(pop()))
+                val start = pop()
+                val end = addExprs(start, ConstExpr(8))
+                val value = pop()
+                stmts += SetStmt(MemoryExpr(start, end), value)
+              case SLOAD => push(StorageExpr(pop()))
               case SSTORE =>
+                flushStack()
                 val a = pop()
                 val b = pop()
-                flushStack()
-                stmts += SstoreStmt(a, b)
+                stmts += SetStmt(StorageExpr(a), b)
               case JUMP =>
                 stmts ++= jumpStmtList(pop())
               case JUMPI =>
+                flushStack()
                 val loc = pop()
                 val cond = pop()
                 stmts += IfStmt(cond, StmtList(jumpStmtList(loc)))
@@ -330,19 +386,20 @@ object AST {
                 val (a :: head, b :: tail) = exprStack.splitAt(n)
                 exprStack = b :: head ::: a :: tail
               case LOG(n) =>
+                flushStack()
                 val a = pop()
                 val b = pop()
                 val topics = Seq.fill(n)(pop())
-                flushStack()
-                stmts += LogStmt(a, b, topics: _*)
+                stmts += LogStmt(MemoryExpr(a, addExprs(a, b)), topics: _*)
               case CREATE =>
+                flushStack()
                 val a = pop()
                 val b = pop()
                 val c = pop()
                 val returnVar = newVar()
-                flushStack()
                 stmts += CreateStmt(returnVar, a, b, c)
               case CALL =>
+                flushStack()
                 val gas = pop()
                 val addr = pop()
                 val value = pop()
@@ -350,10 +407,10 @@ object AST {
                 val inLength = pop()
                 val outOffset = pop()
                 val outLength = pop()
-                flushStack()
                 stmts += CallStmt(gas, addr, value, inOffset, inLength, outOffset, outLength)
                 push(OkVarExpr)
               case CALLCODE =>
+                flushStack()
                 val gas = pop()
                 val addr = pop()
                 val value = pop()
@@ -361,19 +418,18 @@ object AST {
                 val inLength = pop()
                 val outOffset = pop()
                 val outLength = pop()
-                flushStack()
                 stmts += CallcodeStmt(gas, addr, value, inOffset, inLength, outOffset, outLength)
                 push(OkVarExpr)
               case RETURN =>
                 stmts += ReturnStmt(pop(), pop())
               case DELEGATECALL =>
+                flushStack()
                 val gas = pop()
                 val addr = pop()
                 val inOffset = pop()
                 val inLength = pop()
                 val outOffset = pop()
                 val outLength = pop()
-                flushStack()
                 stmts += DelegatecallStmt(gas, addr, inOffset, inLength, outOffset, outLength)
                 push(OkVarExpr)
               case INVALID|UNKNOWN => stmts += ThrowStmt

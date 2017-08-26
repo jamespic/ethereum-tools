@@ -33,7 +33,7 @@ object Decompiler {
     val blocks = Block.identifyBasicBlocks(instructions)
     val controlGraph = ControlGraph(blocks)
     val (functions, signatureHints) = Func.splitIntoFunctions(controlGraph)
-    AST.funcsToAst(functions, signatureHints)
+    AST.funcsToAst(functions, signatureHints).toSeq.sortBy(_.name).mkString("\n")
 //    val rewritten = GraphRewriteRules.stripUnreachable(controlGraph).getOrElse(controlGraph)
 //    println(Func.splitIntoFunctions(rewritten))
 //    rewritten

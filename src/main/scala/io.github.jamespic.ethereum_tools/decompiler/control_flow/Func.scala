@@ -7,7 +7,7 @@ object Func {
   case class FuncEntry(address: Int, inputs: Int, outputs: Int) {
     override def toString = f"FuncEntry($address%x, $inputs%d, $outputs%d"
     def effectiveStateChange = StateChange(
-      StackJump(inputs), StackState(List.fill(outputs)(CalculatedExpr), inputs)
+      StackJump(inputs), StackState(List.fill(math.max(outputs, 0))(CalculatedExpr), inputs)
     )
   }
   case class FuncInfo(knownFunctions: Set[FuncEntry], callSignatures: Set[SignatureHint])
@@ -158,8 +158,8 @@ object Func {
         }) + newStateChange.stackState.thenIndex).max
       }
       val maxDepth = walk(graph.blockByAddress(startAddress))
-      // Guess if it doesn't return, it's probably a void
-      FuncEntry(startAddress, maxDepth, 0)
+      // If it doesn't return, use -1 as a sentinel for bottom type
+      FuncEntry(startAddress, maxDepth, -1)
     }
   }
 
