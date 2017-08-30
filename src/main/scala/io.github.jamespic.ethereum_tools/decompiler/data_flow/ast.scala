@@ -167,7 +167,8 @@ object AST {
   def funcsToAst(funcs: Set[Func], signatureHints: Set[SignatureHint]) = {
     for (Func(address, code, inputs, outputs, startingStates) <- funcs) yield {
       val startStacks = for ((addr, startStack) <- startingStates) yield {
-        val normStack = startStack.ensureDepth(startStack.height + inputs + 1)
+        val spaceForReturnPointer = if (outputs >= 0) 1 else 0
+        val normStack = startStack.ensureDepth(startStack.height + inputs + spaceForReturnPointer)
         addr -> (normStack.vars.zipWithIndex map {
           case (StackVar(`inputs`), _) => ReturnLocationExpr
           case (StackVar(n), _) => ArgExpr(inputs - n - 1)
@@ -186,6 +187,7 @@ object AST {
             VarExpr(highestVarNum)
           }
           def pop() = {
+            assert(exprStack.nonEmpty)
             val head :: tail = exprStack
             exprStack = tail
             head
@@ -203,39 +205,45 @@ object AST {
             }
           }
 
-          def jumpStmtList(nextLoc: Expr): List[Stmt] = {
+          def jumpStmtList(nextLoc: Expr, inputStack: List[Expr]): List[Stmt] = {
             nextLoc match {
-              case ReturnLocationExpr => List(FunctionReturnStmt(exprStack: _*))
+              case ReturnLocationExpr => List(FunctionReturnStmt(inputStack: _*))
               case ConstExpr(n) if startStacks contains n.toInt =>
                 // Local jump
                 val blockEntryStack = startStacks(n.toInt)
                 List(
                   SetStmtList(for {
-                    (expected, actual) <- blockEntryStack zip exprStack
-                    if expected != actual
+                    (expected, actual) <- blockEntryStack zip inputStack
+                    if !(expected == actual || (expected == ReturnLocationExpr))
                   } yield SetStmt(expected.asInstanceOf[LValue], actual)),
                   GotoStmt(ConstExpr(n))
                 )
               case ConstExpr(n) if funcs.exists(_.address == n.toInt) =>
-                flushStack()
                 val func = funcs.find(_.address == n.toInt).get
-                val inputExprs = List.fill(func.inputs)(pop()).reverse
+                val (inputExprs, restStack) = inputStack.splitAt(func.inputs)
                 val outputExprs = List.fill(math.max(func.outputs, 0))(newVar())
                 // FIXME Do output expressions need to go on the stack???
-                val returnExpr = pop()
                 val continueStmt =
-                  if (func.outputs >= 0) jumpStmtList(returnExpr)
+                  if (func.outputs >= 0) {
+                    val returnExpr :: nextStack = restStack
+                    jumpStmtList(returnExpr, outputExprs ::: nextStack)
+                  }
                   else List(CommentStmt("*probably* unreachable"), FunctionReturnStmt())
 
                 List(new FunctionCallStmt(ConstExpr(func.address), inputExprs, outputExprs)) ++ continueStmt
+              case ConstExpr(n) if n.toInt == 2 =>
+                // This is an idiom from older Solidity compilers
+                List(ThrowStmt)
               case x =>
                 signatureHints collectFirst {
                   case SignatureHint(`address`, funcInputs, funcOutputs, returnAddr) =>
-                    val inputExprs = List.fill(funcInputs)(pop()).reverse
+                    val (inputExprs, restStack) = inputStack.splitAt(funcInputs)
                     val outputExprs = List.fill(funcOutputs)(newVar())
+                    val returnExpr :: nextStack = restStack
+                    assert(returnExpr == ConstExpr(returnAddr))
+                    exprStack = outputExprs ++ inputStack
                     // FIXME Do output expressions need to go on the stack???
-                    flushStack()
-                    List(new FunctionCallStmt(x, inputExprs, outputExprs)) ++ jumpStmtList(ConstExpr(returnAddr))
+                    List(new FunctionCallStmt(x, inputExprs, outputExprs)) ++ jumpStmtList(ConstExpr(returnAddr), nextStack)
                 } getOrElse {
                   List(
                     CommentStmt("Wild GOTO"),
@@ -368,12 +376,13 @@ object AST {
                 val b = pop()
                 stmts += SetStmt(StorageExpr(a), b)
               case JUMP =>
-                stmts ++= jumpStmtList(pop())
+                flushStack()
+                stmts ++= jumpStmtList(pop(), exprStack)
               case JUMPI =>
                 flushStack()
                 val loc = pop()
                 val cond = pop()
-                stmts += IfStmt(cond, StmtList(jumpStmtList(loc)))
+                stmts += IfStmt(cond, StmtList(jumpStmtList(loc, exprStack)))
               case PC => push(PcExpr)
               case MSIZE => push(MsizeExpr)
               case GAS => push(GasExpr)
@@ -445,9 +454,11 @@ object AST {
             case _ => None
           }) foreach {n =>
             if (startStacks contains n) {
+              val startStack = startStacks(n)
+              assert(startStack.size == exprStack.size)
               // FIXME: Deal with damn-weird corner case when fallthrough has inconsistent stack height
               stmts += SetStmtList(for {
-                (expected, actual) <- startStacks(n) zip exprStack
+                (expected, actual) <- startStack zip exprStack
                 if expected != actual
               } yield SetStmt(expected.asInstanceOf[LValue], actual))
             }

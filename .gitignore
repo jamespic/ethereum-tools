@@ -6,3 +6,4 @@ target/
 output/
 logs/
 .idea
+node_modules/

@@ -6,9 +6,12 @@ import scala.util.control.NoStackTrace
 object Func {
   case class FuncEntry(address: Int, inputs: Int, outputs: Int) {
     override def toString = f"FuncEntry($address%x, $inputs%d, $outputs%d"
-    def effectiveStateChange = StateChange(
-      StackJump(inputs), StackState(List.fill(math.max(outputs, 0))(CalculatedExpr), inputs)
-    )
+    def effectiveStateChange = {
+      val returnAddressAllowance = if (outputs >= 0) 1 else 0
+      StateChange(
+        StackJump(inputs), StackState(List.fill(math.max(outputs, 0))(CalculatedExpr), inputs + returnAddressAllowance)
+      )
+    }
   }
   case class FuncInfo(knownFunctions: Set[FuncEntry], callSignatures: Set[SignatureHint])
 
@@ -97,6 +100,7 @@ object Func {
   }
 
   def identifyExtraFunctionsByAnomalies(graph: ControlGraph, knownFunctions: Set[Int]): Set[Int] = {
+    // FIXME: Allow walk to cross function calls. Then loosen definition of compatible stacks
     case class NewFunction(address: Int) extends RuntimeException with NoStackTrace
     var visitedStates = Set.empty[VisitedState]
     var blockOwners = Map.empty[Int, Int]
@@ -141,7 +145,7 @@ object Func {
     val allFunctions = knownFunctions ++ unknownFunctions
     for (startAddress <- unknownFunctions) yield {
       var visitedStates = Set.empty[VisitedState]
-      // Find max epth
+      // Find max depth
       def walk(
           currentBlock: Block,
           stateChange: StateChange = StateChange(),
@@ -217,7 +221,7 @@ object Func {
     funcs ++ stubFuncs
   }
 
-  val fallbackFunction = FuncEntry(0, 0, 0)
+  val fallbackFunction = FuncEntry(0, -1, 0)
 
   def splitIntoFunctions(graph: ControlGraph): (Set[Func], Set[SignatureHint]) = {
     val FuncInfo(returningFunctions, signatureHints) = identifyFunctionsByReturn(graph)
