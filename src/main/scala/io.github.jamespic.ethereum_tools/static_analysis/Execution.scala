@@ -7,22 +7,26 @@ import Truthiness.truthiness
 import scala.collection.SortedMap
 
 object Execution {
-  def reachableMapValues(key: EVMData, map: Map[EVMData, EVMData]): Seq[(EVMData, Set[Predicate])] = (for {
-    (k, v) <- map
-    allowedExpr = key === k
-    isTruthy = truthiness(allowedExpr)
-    if isTruthy != Falsey
-    constraints = isTruthy match {
-      case Truthy => Set.empty[Predicate]
-      case Maybey => Set(allowedExpr)
-      case Falsey => Set.empty[Predicate]
-    }
-  } yield (v, constraints)).toSeq
+  def reachableMapValues(key: EVMData, map: Map[EVMData, EVMData]): Seq[(EVMData, Set[Predicate])] = {
+    val results = for {
+      (k, v) <- map
+      allowedExpr = key === k
+      isTruthy = truthiness(allowedExpr)
+      if isTruthy != Falsey
+      constraints = isTruthy match {
+        case Truthy => Set.empty[Predicate]
+        case Maybey => Set(allowedExpr)
+        case Falsey => Set.empty[Predicate]
+      }
+    } yield (v, constraints)
+    if (results.nonEmpty) results.toSeq else Seq((Constant(0), Set.empty))
+  }
 
 
-  case class Contract(code: Memory, storage: Map[EVMData, EVMData] = Map.empty, value: EVMData = Constant(0), nonce: Int = 0)
+  case class Contract(code: Memory, storage: Map[EVMData, EVMData] = Map.empty,
+                      value: EVMData = Constant(0), nonce: Int = 0) extends HashMemo
 
-  val DefaultCallData = Memory(SortedMap(MemRange(0, 4096) -> CallData(0, 4096)))
+  def defaultCallData(callId: Int = 0) = Memory(SortedMap(MemRange(0, 4096) -> CallData(0, 4096, callId)))
   def attackerContractReturnData(returnDataSize: Int) = {
     SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize))
   }
@@ -33,22 +37,24 @@ object Execution {
     }
     SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize))
   }
-  
+  val recursionLimit = 1
+  val repeatAttacks = 3
   sealed trait ExecutionState {
     def recursionDepth: Int
+    def constraints: Set[Predicate]
   }
   sealed trait NonFinalExecutionState extends ExecutionState {
     def nextStates: Seq[ExecutionState]
   }
   case class FinishedState(constraints: Set[Predicate], success: Boolean,
                            result: SortedMap[MemRange, EVMData],
-                           contracts: Map[EVMData, Contract]) extends ExecutionState {
+                           contracts: Map[EVMData, Contract]) extends ExecutionState with HashMemo {
     def recursionDepth = 0
   }
   case class ContractCallState(returnState: RunningState, calledState: ExecutionState,
-                               returnLoc: EVMData = 0, returnSize: EVMData = 0) extends NonFinalExecutionState {
+                               returnLoc: EVMData = 0, returnSize: EVMData = 0) extends NonFinalExecutionState with HashMemo {
     def nextStates: Seq[ExecutionState] = {
-      if (recursionDepth > 3) Nil
+      if (recursionDepth > recursionLimit) Nil
       else calledState match {
         case x: NonFinalExecutionState => for (nextState <- x.nextStates) yield copy(calledState = nextState)
         case FinishedState(constraints, success, result, contracts) =>
@@ -69,12 +75,34 @@ object Execution {
       }
     }
     def recursionDepth = calledState.recursionDepth + 1
+    def constraints = returnState.constraints ++ calledState.constraints
   }
+
   def attackStates(targettedContract: EVMData, contracts: Map[EVMData, Contract],
-                   returnDataSize: EVMData, constraints: Set[Predicate], attacksLeft: Int = 3) = {
-    if (attacksLeft > 0) {
-      val contract = contracts(targettedContract)
-      Seq(
+                   returnDataSize: EVMData, constraints: Set[Predicate], callId: Int = 0,
+                   attacksLeft: Int = repeatAttacks) = {
+    val contract = contracts(targettedContract)
+    Seq(
+      AttackerContractState(
+        targettedContract = targettedContract,
+        calledState = RunningState(
+          address = targettedContract,
+          contracts = contracts,
+          code = contract.code,
+          contract = contract,
+          constraints = constraints,
+          callData = defaultCallData(callId),
+          callValue = Constant(0)
+        ),
+        returnDataSize = returnDataSize,
+        attacksLeft = attacksLeft
+      ),
+      {
+        val victim = contracts(targettedContract)
+        val attackerContract = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
+        val newContracts = contracts +
+          (targettedContract -> victim.copy(value = victim.value + SpentMoney(1))) +
+          (AttackerControlledAddress -> attackerContract.copy(value = attackerContract.value - SpentMoney(1)))
         AttackerContractState(
           targettedContract = targettedContract,
           calledState = RunningState(
@@ -83,57 +111,47 @@ object Execution {
             code = contract.code,
             contract = contract,
             constraints = constraints,
+            callData = defaultCallData(callId),
             callValue = Constant(0)
           ),
           returnDataSize = returnDataSize,
-          attacksLeft = attacksLeft - 1
-        ),
-        {
-          val victim = contracts(targettedContract)
-          val attackerContract = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
-          val newContracts = contracts +
-            (targettedContract -> victim.copy(value = victim.value + SpentMoney(1))) +
-            (AttackerControlledAddress -> attackerContract.copy(value = attackerContract.value - SpentMoney(1)))
-          AttackerContractState(
-            targettedContract = targettedContract,
-            calledState = RunningState(
-              address = targettedContract,
-              contracts = contracts,
-              code = contract.code,
-              contract = contract,
-              constraints = constraints,
-              callValue = Constant(0)
-            ),
-            returnDataSize = returnDataSize,
-            attacksLeft = attacksLeft - 1
-          )
-        }
+          attacksLeft = attacksLeft
+        )
+      }
 
-      )
-    } else Nil
+    )
   }
   case class AttackerContractState(calledState: ExecutionState,
                                    returnDataSize: EVMData,
                                    targettedContract: EVMData,
-                                   attacksLeft: Int = 3) extends NonFinalExecutionState {
+                                   attacksLeft: Int = repeatAttacks) extends NonFinalExecutionState with HashMemo {
     def nextStates: Seq[ExecutionState] = calledState match {
       case x: NonFinalExecutionState => for (nextState <- x.nextStates) yield copy(calledState = nextState)
       case x @ FinishedState(_, false, _, _) => Nil // If it got rolled back, we didn't do anything useful
       case x @ FinishedState(constraints, true, result, contracts) =>
         val returnValue = x.copy(result = attackerContractReturnData(returnDataSize))
-        val otherActions = attackStates(targettedContract, contracts, returnDataSize, constraints, attacksLeft)
+        val otherActions = if (attacksLeft - 1 > 0) {
+          attackStates(
+            targettedContract = targettedContract,
+            contracts = contracts,
+            returnDataSize = returnDataSize,
+            constraints = constraints,
+            callId = repeatAttacks + 1 - attacksLeft,
+            attacksLeft = attacksLeft - 1)
+        } else Nil
         returnValue +: otherActions
     }
 
     def recursionDepth = calledState.recursionDepth
+    def constraints = calledState.constraints
   }
   case class RunningState(address: EVMData, contracts: Map[EVMData, Contract],
                           code: Memory, contract: Contract, instructionPointer: Int = 0,
                           stack: List[EVMData] = Nil, memory: Memory = Memory(),
                           sender: EVMData = AttackerControlledAddress,
                           callValue: EVMData = SpentMoney(1), constraints: Set[Predicate] = Set.empty,
-                          callData: Memory = DefaultCallData, callDataLength: EVMData = CallDataLength
-                     ) extends NonFinalExecutionState {
+                          callData: Memory = defaultCallData(), callDataLength: EVMData = CallDataLength
+                     ) extends NonFinalExecutionState with HashMemo {
 
     private def simpleInstruction(modifier: PartialFunction[List[EVMData], List[EVMData]])  = {
       modifier.lift(stack) match {
@@ -490,7 +508,9 @@ object Execution {
                   attackStates(targettedContract = address,
                     contracts = newContracts,
                     returnDataSize = returnLength,
-                    constraints = constraints ++ extraConstraints)
+                    constraints = constraints ++ extraConstraints,
+                    attacksLeft = 0
+                  )
                 case to if contracts contains to =>
                   // Forward to other contract
                   Seq(RunningState(
@@ -630,6 +650,7 @@ object Execution {
           stack match {
             case a :: b :: tail =>
               Seq(FinishedState(constraints, true, memory.getRange(a, b), contracts))
+            case _ => fail
           }
         case UNKNOWN|INVALID|REVERT =>
           Seq(FinishedState(constraints, false, SortedMap.empty, contracts))
@@ -642,6 +663,7 @@ object Execution {
                   contracts - address + (a -> recipient.copy(value = contract.value))),
                 FinishedState(constraints, false, SortedMap.empty, contracts) // Yes, SELFDESTRUCT can fail
               )
+            case _ => fail
           }
       }
     }

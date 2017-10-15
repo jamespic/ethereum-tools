@@ -11,39 +11,14 @@ object StaticAnalysis {
   import Execution._
 
   sealed trait Interest[+T]
-  case class Interesting[+T](result: T) extends Interest[T]
-  case class Weird[+T](message: String) extends Interest[Nothing]
-  case object NotInteresting extends Interest[Nothing]
+  case class Interesting[+T](result: T) extends Interest[T] with HashMemo
+  case class Weird[+T](message: String) extends Interest[Nothing] with HashMemo
+  case object NotInteresting extends Interest[Nothing] with HashMemo
   trait StateListener[T] {
     def apply(state: ExecutionState): StateListener[T]
     def startNewTransaction(state: ExecutionState): StateListener[T]
     def interest: Interest[T]
   }
-
-//  def analyseContract[T](address: BigInt, contracts: Map[EVMData, Contract], listener: StateListener[T]): Stream[(Interest[T], FinishedState)] = {
-//    var visitedExecutionStates = Set.empty[ExecutionState]
-//    def walkExecutionState(executionState: ExecutionState, listener: StateListener[T]): Stream[(Interest[T], FinishedState)] = {
-//      if (visitedExecutionStates contains executionState) Stream.empty
-//      else {
-//        visitedExecutionStates += executionState
-//        executionState match {
-//          case x: NonFinalExecutionState =>
-//            x.nextStates.toStream.flatMap {state =>
-//              walkExecutionState(state, listener(state))
-//            }
-//          case x @ FinishedState(_, true, _, _) => Stream((listener(x).interest, x))
-//          case x @ FinishedState(_, false, _, _) => Stream.empty
-//        }
-//      }
-//    }
-//    val startState = RunningState(
-//      address = address,
-//      code = contracts(address).code,
-//      contract = contracts(address),
-//      contracts = contracts
-//    )
-//    walkExecutionState(startState, listener.startNewTransaction(startState))
-//  }
 
   def analyseContract[T](address: BigInt, contracts: Map[EVMData, Contract], listener: StateListener[T]): Iterable[(Interest[T], FinishedState)] = {
     var visitedExecutionStates = Set.empty[ExecutionState]
@@ -62,7 +37,8 @@ object StaticAnalysis {
           for (nextState <- x.nextStates) yield {
             val nextListener = lastListener(nextState)
             if (lastListener.interest == NotInteresting && nextListener.interest != NotInteresting) {
-              println(s"New interesting thing: ${nextListener.interest} at ${nextState}")
+              println(s"New interesting thing: ${nextListener.interest}")
+              for (constraint <- nextState.constraints) println(s" - $constraint")
             }
             (nextListener, nextState)
           }

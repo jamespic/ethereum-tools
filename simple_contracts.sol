@@ -53,3 +53,42 @@ contract PayMe {
     msg.sender.transfer(this.balance - 1 wei);
   }
 }
+
+contract InsecureWallet {
+    address owner;
+    function initWallet(address newOwner) {
+      owner = newOwner;
+    }
+    function withdraw(uint amount) {
+      if (msg.sender == owner) {
+        msg.sender.transfer(amount);
+      }
+    }
+    function () payable {}
+}
+
+contract VulnerableRecursive {
+  uint balance;
+  function () payable {
+    balance += msg.value;
+  }
+  function withdraw(uint value) {
+    if (balance > value) {
+      msg.sender.transfer(value);
+      balance -= value;
+    }
+  }
+}
+
+contract SafeRecursive {
+  uint balance;
+  function () payable {
+    balance += msg.value;
+  }
+  function withdraw(uint value) {
+    if (balance > value) {
+      balance -= value;
+      msg.sender.transfer(value);
+    }
+  }
+}

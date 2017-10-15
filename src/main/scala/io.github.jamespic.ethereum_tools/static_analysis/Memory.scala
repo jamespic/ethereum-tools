@@ -2,7 +2,7 @@ package io.github.jamespic.ethereum_tools.static_analysis
 
 import scala.collection.SortedMap
 
-case class MemRange(start: Int, end: Int) extends Ordered[MemRange] {
+case class MemRange(start: Int, end: Int) extends Ordered[MemRange] with HashMemo {
   def length = end - start
   def contains(that: MemRange) = this.start <= that.start && that.end <= this.end
   def intersection(that: MemRange) = {
@@ -26,7 +26,7 @@ case object Memory {
   }
 }
 case class Memory(knownRanges: SortedMap[MemRange, EVMData] = SortedMap.empty,
-                  knownValues: Map[EVMData, EVMData] = Map.empty) {
+                  knownValues: Map[EVMData, EVMData] = Map.empty) extends HashMemo {
   private[static_analysis] def intersectingRanges(start: Int, end: Int) = {
     val firstRange = knownRanges.until(MemRange(start, start)).lastOption filter {
       case (MemRange(_, rangeEnd), _) => rangeEnd > start
