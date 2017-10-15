@@ -19,7 +19,7 @@ object Bytecode {
     ops.result()
   }
 
-  def decode(code: Array[Byte], i: Int) = (code(i) & 0xff) match {
+  def decode(code: Array[Byte], i: Int) = code.applyOrElse(i, _ => 0.toByte) & 0xff match {
     case 0x00 => STOP
     case 0x01 => ADD
     case 0x02 => MUL
@@ -89,7 +89,7 @@ object Bytecode {
     case 0xf4 => DELEGATECALL
     case 0xfd => REVERT
     case 0xfe => INVALID
-    case 0xff => SUICIDE
+    case 0xff => SELFDESTRUCT
     case _ => UNKNOWN
   }
   def bytesToBigInt(data: Iterable[Byte]) = (BigInt(0) /: data)((acc, v) => acc * 256 + (v & 0xff))
@@ -179,7 +179,7 @@ object Bytecode {
   case object INVALID extends Bytecode(0, 0)
   case object RETURN extends Bytecode(2, 0)
   case object DELEGATECALL extends Bytecode(6, 1)
-  case object SUICIDE extends Bytecode(1, 0)
+  case object SELFDESTRUCT extends Bytecode(1, 0)
   case object UNKNOWN extends Bytecode(0, 0)
 
 }

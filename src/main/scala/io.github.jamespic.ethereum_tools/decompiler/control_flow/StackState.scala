@@ -65,11 +65,10 @@ object StackState {
       val minDepth = Math.max(a.vars.length, b.vars.length)
       val aStack = a.ensureDepth(minDepth)
       val bStack = b.ensureDepth(minDepth)
-      assert(aStack.thenIndex == bStack.thenIndex)
       val newVars = for ((x, y) <- aStack.vars zip bStack.vars) yield {
         if (x == y) x else CalculatedExpr
       }
-      Some(StackState(newVars, aStack.thenIndex))
+      Some(StackState(newVars, aStack.thenIndex max bStack.thenIndex))
     }
   }
 }

@@ -73,13 +73,14 @@ case class Memory(knownRanges: SortedMap[MemRange, EVMData] = SortedMap.empty,
     }
   }
 
-  def get(key: EVMData): EVMData = {
-    key match {
-      case Constant(n) =>
-        getSingleValueFromRange(n.toInt, n.toInt + 32)
+  def get(key: EVMData, len: EVMData = Constant(32)): EVMData = {
+    (key, len) match {
+      case (Constant(k), Constant(l)) =>
+        getSingleValueFromRange(k.toInt, l.toInt)
       case _ => knownValues.getOrElse(key, Constant(0))
     }
   }
+
   def putRange(start: Int, length: Int, newData: Iterable[(MemRange, EVMData)]): Memory = {
     // Check everything in range
     assert((true /: newData){case (a, (MemRange(s, e), _)) => a && 0 <= s && s <= e && e <= length})

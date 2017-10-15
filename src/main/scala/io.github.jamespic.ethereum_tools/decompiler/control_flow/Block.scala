@@ -88,7 +88,7 @@ object Block {
       (op, stackHead) match {
         case (STOP|RETURN, _) =>
           finishBlock(Halt)
-        case (INVALID|REVERT|SUICIDE|UNKNOWN, _) =>
+        case (INVALID | REVERT | SELFDESTRUCT | UNKNOWN, _) =>
           finishBlock(Throw)
         case (JUMP, StackVar(n)) =>
           finishBlock(StackJump(n))

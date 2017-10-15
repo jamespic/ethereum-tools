@@ -40,7 +40,7 @@ class BytecodeTest extends FreeSpec with Matchers {
         DUP(1), DUP(2), DUP(16),
         SWAP(1), SWAP(2), SWAP(16),
         LOG(0), LOG(1), LOG(4),
-        CREATE, CALL, CALLCODE, RETURN, DELEGATECALL, REVERT, INVALID, SUICIDE,
+        CREATE, CALL, CALLCODE, RETURN, DELEGATECALL, REVERT, INVALID, SELFDESTRUCT,
         UNKNOWN
       )
       opcodes should equal (expected)

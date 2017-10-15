@@ -1,7 +1,7 @@
 package io.github.jamespic.ethereum_tools.static_analysis
 
 import scala.collection.SortedMap
-import org.ethereum.crypto.HashUtil.sha3
+import org.ethereum.crypto.HashUtil.{sha3, sha256, ripemd160}
 import org.ethereum.util.BIUtil.toBI
 
 import javax.xml.bind.DatatypeConverter.parseHexBinary
@@ -13,7 +13,7 @@ object EVMData {
 
   private def u(x: BigInt) = if (x < 0) x + modulus else x
   private def s(x: BigInt) = if (x > signedUpperLimit) x - modulus else x
-  private def bool(x: Boolean) = if (x) Constant(1) else Constant(0)
+  private def bool(x: Boolean): Predicate = if (x) True else False
 
   private def overflowingConstant(n: BigInt) = if (-128 < n && n < 1024) Constant(n) else DefenderControlledData
   implicit def intToConstant(i: Int): EVMData = Constant(BigInt(i))
@@ -75,22 +75,22 @@ sealed trait EVMData {
     case (Constant(a), Constant(b)) => overflowingConstant(a.modPow(b, modulus))
     case (a, b) => ExpExpr(a, b)
   }
-  def <(that: EVMData): EVMData = (this, that) match {
+  def <(that: EVMData): Predicate = (this, that) match {
     case (Constant(a), Constant(b)) => bool(u(a) < u(b))
     case (a, b) => LessThan(a, b)
   }
-  def slt(that: EVMData): EVMData = (this, that) match {
+  def slt(that: EVMData): Predicate = (this, that) match {
     case (Constant(a), Constant(b)) => bool(s(a) < s(b))
     case (a, b) => LessThan(a, b)
   }
-  def >(that: EVMData): EVMData = that < this
-  def sgt(that: EVMData): EVMData = that slt this
-  def ===(that: EVMData): EVMData = (this, that) match {
+  def >(that: EVMData): Predicate = that < this
+  def sgt(that: EVMData): Predicate = that slt this
+  def ===(that: EVMData): Predicate = (this, that) match {
     case (Constant(a), Constant(b)) => bool(u(a) == u(b))
     case (a, b) if a.hashCode < b.hashCode => Equals(a, b)
     case (a, b) => Equals(b, a)
   }
-  def unary_! : EVMData = this match {
+  def unary_! : Predicate = this match {
     case Constant(a) => bool(a == 0)
     case (a: Predicate) => Not(a)
     case a => a === Constant(0)
@@ -145,6 +145,10 @@ sealed trait EVMData {
       case a => AndExpr(DivExpr(a, Constant(1 << ((32 - endBytes) * 8))), mask)
     }
   }
+  def isConstant = self match {
+    case Constant(_) => true
+    case _ => false
+  }
 }
 case class Constant(n: BigInt) extends Str("0x" + n.toString(16)) with EVMData
 
@@ -152,8 +156,14 @@ sealed trait AttackerControlled extends EVMData
 case object AttackerControlled extends AttackerControlled {
   def unapply(data: EVMData): Boolean = data match {
     case x: AttackerControlled => true
+    case ExpExpr(AttackerControlled(), AttackerControlled()) => true
+    case ExpExpr(_, AttackerControlled()) => false
+    case ExpExpr(AttackerControlled(), _) => false
+    case MulExpr(_, CurvePoint(_, _)) => false
     case BinExpr(AttackerControlled(), b) => true
     case BinExpr(a, AttackerControlled()) => true
+    case Not(AttackerControlled()) => true
+    case BitNotExpr(AttackerControlled()) => true
     case _ => false
   }
 }
@@ -166,6 +176,8 @@ object DefenderControlled {
     case x: DefenderControlled => true
     case BinExpr(DefenderControlled(), b) => true
     case BinExpr(a, DefenderControlled()) => true
+    case Not(DefenderControlled()) => true
+    case BitNotExpr(DefenderControlled()) => true
     case _ => false
   }
 }
@@ -175,7 +187,10 @@ case object DefenderControlledAddress extends DefenderControlled
 object Timestamp extends Constant(System.currentTimeMillis() / 1000) with DefenderControlled {
   override def toString = "TIMESTAMP"
 }
-object Blocknumber extends Constant(System.getProperty("blocknumber", "4370000").toLong) with DefenderControlled
+object Blocknumber extends Constant(System.getProperty("blocknumber", "4370000").toLong) with DefenderControlled {
+  override def toString = "BLOCKNUMBER"
+}
+case class NewContractAddress(creator: EVMData, count: Int) extends EVMData
 case class SpentMoney(n: Int) extends EVMData
 
 // Treat signed and unsigned the same, since these constraints will be solved by hand
@@ -195,6 +210,7 @@ case class ExpExpr(a: EVMData, b: EVMData) extends Str(s"($a ** $b)") with BinEx
 case class AndExpr(a: EVMData, b: EVMData) extends Str(s"($a & $b)") with BinExpr
 case class OrExpr(a: EVMData, b: EVMData) extends Str(s"($a | $b)") with BinExpr
 case class XorExpr(a: EVMData, b: EVMData) extends Str(s"($a ^ $b)") with BinExpr
+case class CurvePoint(a: EVMData, b: EVMData) extends BinExpr
 case class BitNotExpr(a: EVMData) extends Str(s"~$a") with EVMData
 
 
@@ -203,19 +219,30 @@ case class Equals(a: EVMData, b: EVMData) extends Str(s"($a == $b)") with BinExp
 case class LessThan(a: EVMData, b: EVMData) extends Str(s"($a < $b)") with BinExpr with Predicate
 case class GreaterThan(a: EVMData, b: EVMData) extends Str(s"($a > $b)") with BinExpr with Predicate
 case class Not(a: Predicate) extends Str(s"!$a") with Predicate
-
-sealed trait Hash extends EVMData {
-  val data: Seq[EVMData]
-}
+object True extends Constant(1) with Predicate {override def toString = "true"}
+object False extends Constant(0) with Predicate {override def toString = "false"}
 
 object BinaryConstant {
   def apply(binData: Array[Byte]) = new BinaryConstant(binData)
   def apply(binData: String) = new BinaryConstant(parseHexBinary(binData))
 }
 class BinaryConstant(val binData: Array[Byte]) extends Constant(toBI(binData))
+
+sealed trait Hash extends EVMData {
+  val data: Seq[EVMData]
+}
+
 case class Keccak256(data: EVMData*) extends Hash
 class ConstantKeccak256(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(sha3(binData)) with Hash {
   override def toString = s"Keccak256(${data.mkString(", ")})"
 }
 
+case class Sha256(data: EVMData*) extends Hash
+class ConstantSHA256(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(sha256(binData)) with Hash {
+  override def toString = s"Sha256(${data.mkString(", ")})"
+}
 
+case class Ripemd(data: EVMData*) extends Hash
+class ConstantRipemd(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(ripemd160(binData)) with Hash {
+  override def toString = s"Ripemd160(${data.mkString(", ")})"
+}

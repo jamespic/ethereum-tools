@@ -99,6 +99,139 @@ object Func {
     FuncInfo(knownFunctionLocations + fallbackFunction, signatureHints)
   }
 
+  case class KnownFunction(address: Int, inputs: Int, outputs: Int, blocks: Set[Int]) {
+    def merge(that: KnownFunction) = {
+      assert(this.address == that.address)
+      assert(this.inputs == that.inputs)
+      assert(this.outputs == that.outputs)
+      copy(blocks = this.blocks ++ that.blocks)
+    }
+  }
+
+  private def mergeMaps[K, V](a: Map[K, V], b: Map[K, V])(f: (V, V) => V): Map[K, V] = {
+    (for (k <- a.keySet ++ b.keySet) yield {
+      val aKey = a.get(k).toList
+      val bKey = b.get(k).toList
+      k -> (aKey ++ bKey).reduce(f)
+    }).toMap
+  }
+
+//  sealed trait UnwindState {
+//    def merge(that: UnwindState): UnwindState
+//  }
+//  case class UnwindingFunction(backwardsStateChange: StateChange = StateChange(), blocks: Set[Int] = Set.empty) {
+//    def merge(that: UnwindingFunction) = {
+//      UnwindingFunction(
+//        this.backwardsStateChange & that.backwardsStateChange,
+//        this.blocks ++ that.blocks)
+//    }
+//  }
+//  case class UnwindFromHalt(unwindStack: List[UnwindingFunction] = List(UnwindingFunction())) extends UnwindState {
+//    override def merge(that: UnwindState): UnwindState = that match {
+//      case UnwindFromHalt(otherStack) => UnwindFromHalt(unwindStack zip otherStack map (x => x._1 merge x._2))
+//      case UnwindFromNonHalt(f) => UnwindFromHalt((f merge unwindStack.head) :: unwindStack.tail)
+//    }
+//  }
+//  case class UnwindFromNonHalt(f: UnwindingFunction) extends UnwindState {
+//    def merge(that: UnwindState): UnwindState = that match {
+//      case UnwindFromNonHalt(g) =>
+//        UnwindFromNonHalt(f merge g)
+//      case x: UnwindFromHalt => x.merge(this)
+//    }
+//  }
+//  case class StackStateAtPoint(forwardStateChange: StateChange, maxFramesUsed: Int) {
+//    def this(forwardStateChange: StateChange, backwardStateChange: StateChange) = {
+//      this(forwardStateChange, backwardStateChange.stackState.vars.size)
+//    }
+//    def merge(that: StackStateAtPoint) = StackStateAtPoint(
+//      this.forwardStateChange & that.forwardStateChange,
+//      this.maxFramesUsed max that.maxFramesUsed
+//    )
+//  }
+//
+//  // FIXME FIXME FIXME
+//
+//  def identifyFunctions(graph: ControlGraph) = {
+//    case class WalkResult(
+//      unwindState: UnwindState,
+//      knownFunctions: Map[Int, KnownFunction] = Map.empty,
+//      signatureHints: Set[SignatureHint] = Set.empty,
+//      stackVarInfo: Map[Int, StackStateAtPoint] = Map.empty
+//    ) {
+//      def +(that: WalkResult) = WalkResult(
+//        this.unwindState merge that.unwindState,
+//        mergeMaps(this.knownFunctions, that.knownFunctions)(_ merge _),
+//        this.signatureHints ++ that.signatureHints,
+//        mergeMaps(this.stackVarInfo, that.stackVarInfo)(_ merge _)
+//      )
+//      def unwind(block: Block): WalkResult = ???
+//    }
+//    var visitedStates = Set.empty[VisitedState]
+//    def walk(
+//              currentBlock: Block,
+//              stateChange: StateChange = StateChange(),
+//              blocksInStack: Set[Block] = Set.empty): WalkResult = {
+//      currentBlock.exitPoint match {
+//        case Halt =>
+//          WalkResult(UnwindFromHalt())
+//        case ep =>
+//          val newBlocksInStack = blocksInStack + currentBlock
+//          val newStateChange = stateChange >> currentBlock.stateChange
+//          graph.exitBlocks(newStateChange.exitPoint).foldLeft(WalkResult(false, visitedStates)){(prevResult, nextBlock) =>
+//            val nextVisitedState = VisitedState(nextBlock.address, newBlocksInStack)
+//            if (visitedStates contains nextVisitedState) prevResult
+//            else {
+//              visitedStates += nextVisitedState
+//              val walkResult = walk(
+//                nextBlock,
+//                newStateChange,
+//                newBlocksInStack,
+//              )
+//
+//              val unwoundResult = if (walkResult.shouldUnwind) {
+//                val unwindsPartitioned = for (unwindingFunction <- walkResult.unwindingFunctions) yield {
+//                  (currentBlock.stateChange >> unwindingFunction) match {
+//                    case StateChange(ConstJump(returnAddr), _) =>
+//                      val StateChange(StackJump(inputs), funcStack) = unwindingFunction
+//                      val outputs = funcStack.height + inputs + 1
+//                      Left(SignatureHint(currentBlock.address, inputs, outputs, returnAddr))
+//                    case unwound => Right(unwound)
+//                  }
+//                }
+//                val signatureHints = for (Left(signatureHint) <- unwindsPartitioned) yield signatureHint
+//                val unwindingFunctions = for (Right(unwound) <- unwindsPartitioned) yield unwound
+//                val identifiedFunctions = for (SignatureHint(_, inputs, outputs, _) <- signatureHints) yield
+//                  FuncEntry(nextBlock.address, inputs, outputs)
+//
+//                if (identifiedFunctions.nonEmpty) {
+//                  // This function was a function call corresponding to a known return
+//                  walkResult.copy(
+//                    knownFunctionLocations = walkResult.knownFunctionLocations ++ identifiedFunctions,
+//                    unwindingFunctions = unwindingFunctions,
+//                    signatureHints = walkResult.signatureHints ++ signatureHints
+//                  )
+//                } else {
+//                  // If current block wasn't a function call, then it might be a function return
+//                  currentBlock.exitPoint match {
+//                    case StackJump(_) =>
+//                      walkResult.copy(unwindingFunctions = unwindingFunctions + currentBlock.stateChange )
+//                    case _ =>
+//                      walkResult.copy(unwindingFunctions = unwindingFunctions)
+//                  }
+//                }
+//              } else walkResult
+//              prevResult + unwoundResult
+//            }
+//          }
+//      }
+//    }
+//    val WalkResult(shouldUnwind, _, knownFunctionLocations, unwindingFunctions, signatureHints) = walk(graph.blockByAddress(0))
+//    assert(shouldUnwind, "This contract doesn't seem to halt - this may indicate a problem with decompilation")
+//    assert(unwindingFunctions.isEmpty, "Not all function returns have been accounted for")
+//    FuncInfo(knownFunctionLocations + fallbackFunction, signatureHints)
+//  }
+
+
   def identifyExtraFunctionsByAnomalies(graph: ControlGraph, knownFunctions: Set[Int]): Set[Int] = {
     // FIXME: Allow walk to cross function calls. Then loosen definition of compatible stacks
     case class NewFunction(address: Int) extends RuntimeException with NoStackTrace

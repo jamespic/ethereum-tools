@@ -443,7 +443,7 @@ object AST {
                 push(OkVarExpr)
               case INVALID|UNKNOWN => stmts += ThrowStmt
               case REVERT => stmts += RevertStmt(pop(), pop())
-              case SUICIDE => stmts += SelfdestructStmt(pop())
+              case SELFDESTRUCT => stmts += SelfdestructStmt(pop())
             }
           }
 
