@@ -44,3 +44,12 @@ contract Throw {
     x(1, 2);
   }
 }
+
+contract PayMe {
+  function pay(address recipient) {
+    recipient.transfer(this.balance - 1 wei);
+  }
+  function payMe() payable {
+    msg.sender.transfer(this.balance - 1 wei);
+  }
+}

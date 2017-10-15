@@ -127,6 +127,6 @@ object PrecompiledContracts {
     val result = contract.execute(memory.binary)
     val success = result.getLeft.booleanValue
     val output = result.getRight
-    Seq(FinishedState(Set.empty, success, SortedMap(MemRange(0,output.length) -> BinaryConstant(output)), Map.empty)
+    Seq(FinishedState(Set.empty, success, SortedMap(MemRange(0,output.length) -> BinaryConstant(output)), Map.empty))
   }
 }

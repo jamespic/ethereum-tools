@@ -39,14 +39,16 @@ case class Memory(knownRanges: SortedMap[MemRange, EVMData] = SortedMap.empty,
     val end = start + length
     val range = intersectingRanges(start, end)
     for ((MemRange(segStart, segEnd), x) <- range) yield {
-      val endClipped = if (segEnd > end) x.clipLowBytes(end - segStart) else x
-      val fullyClipped = if (segStart < start) endClipped.clipHighBytes(start - segStart) else endClipped
-      MemRange((start max segStart) - start, (end min segEnd) - start) -> fullyClipped
+      val newStart = start max segStart
+      val newEnd = end min segEnd
+      val endClipped = if (segEnd > end) x.clipLowBytes(segEnd - end) else x
+      val fullyClipped = if (segStart < start) endClipped.clipHighBytes(newEnd - start) else endClipped
+      MemRange(newStart - start, newEnd - start) -> fullyClipped
     }
   }
 
   def getRange(start: EVMData, length: EVMData): SortedMap[MemRange, EVMData] = (start, length) match {
-    case (Constant(s), Constant(l)) => getRange(s, l)
+    case (Constant(s), Constant(l)) => getRange(s.toInt, l.toInt)
     case (x, Constant(l)) => SortedMap((for (i <- 0 until l.toInt) yield MemRange(i, i + 32) -> get(i)): _*)
     case _ => SortedMap()
   }
@@ -69,7 +71,7 @@ case class Memory(knownRanges: SortedMap[MemRange, EVMData] = SortedMap.empty,
 
   def getSingleValueFromRange(start: Int, length: Int) = {
     ((Constant(0):EVMData) /: getRange(start, length)){
-      case (x, (MemRange(_, end), y)) => x + y * (BigInt(1) << (8 * (32 - end)))
+      case (x, (MemRange(_, end), y)) => x +! y * (BigInt(1) << (8 * (length - end)))
     }
   }
 

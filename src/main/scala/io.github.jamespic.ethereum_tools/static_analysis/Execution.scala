@@ -15,6 +15,7 @@ object Execution {
     constraints = isTruthy match {
       case Truthy => Set.empty[Predicate]
       case Maybey => Set(allowedExpr)
+      case Falsey => Set.empty[Predicate]
     }
   } yield (v, constraints)).toSeq
 
@@ -32,18 +33,22 @@ object Execution {
     }
     SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize))
   }
-
-  sealed trait ExecutionState
+  
+  sealed trait ExecutionState {
+    def recursionDepth: Int
+  }
   sealed trait NonFinalExecutionState extends ExecutionState {
     def nextStates: Seq[ExecutionState]
   }
   case class FinishedState(constraints: Set[Predicate], success: Boolean,
                            result: SortedMap[MemRange, EVMData],
-                           contracts: Map[EVMData, Contract]) extends ExecutionState
+                           contracts: Map[EVMData, Contract]) extends ExecutionState {
+    def recursionDepth = 0
+  }
   case class ContractCallState(returnState: RunningState, calledState: ExecutionState,
-                               returnLoc: EVMData = 0, returnSize: EVMData = 0) extends ExecutionState {
+                               returnLoc: EVMData = 0, returnSize: EVMData = 0) extends NonFinalExecutionState {
     def nextStates: Seq[ExecutionState] = {
-      if (recursionDepth > 10) Nil
+      if (recursionDepth > 3) Nil
       else calledState match {
         case x: NonFinalExecutionState => for (nextState <- x.nextStates) yield copy(calledState = nextState)
         case FinishedState(constraints, success, result, contracts) =>
@@ -63,43 +68,76 @@ object Execution {
 
       }
     }
-    lazy val recursionDepth: Int = calledState match {
-      case x: ContractCallState => x.recursionDepth + 1
-      case _ => 1
-    }
+    def recursionDepth = calledState.recursionDepth + 1
+  }
+  def attackStates(targettedContract: EVMData, contracts: Map[EVMData, Contract],
+                   returnDataSize: EVMData, constraints: Set[Predicate], attacksLeft: Int = 3) = {
+    if (attacksLeft > 0) {
+      val contract = contracts(targettedContract)
+      Seq(
+        AttackerContractState(
+          targettedContract = targettedContract,
+          calledState = RunningState(
+            address = targettedContract,
+            contracts = contracts,
+            code = contract.code,
+            contract = contract,
+            constraints = constraints,
+            callValue = Constant(0)
+          ),
+          returnDataSize = returnDataSize,
+          attacksLeft = attacksLeft - 1
+        ),
+        {
+          val victim = contracts(targettedContract)
+          val attackerContract = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
+          val newContracts = contracts +
+            (targettedContract -> victim.copy(value = victim.value + SpentMoney(1))) +
+            (AttackerControlledAddress -> attackerContract.copy(value = attackerContract.value - SpentMoney(1)))
+          AttackerContractState(
+            targettedContract = targettedContract,
+            calledState = RunningState(
+              address = targettedContract,
+              contracts = contracts,
+              code = contract.code,
+              contract = contract,
+              constraints = constraints,
+              callValue = Constant(0)
+            ),
+            returnDataSize = returnDataSize,
+            attacksLeft = attacksLeft - 1
+          )
+        }
+
+      )
+    } else Nil
   }
   case class AttackerContractState(calledState: ExecutionState,
                                    returnDataSize: EVMData,
                                    targettedContract: EVMData,
-                                   attacksLeft: Int = 5) extends NonFinalExecutionState {
+                                   attacksLeft: Int = 3) extends NonFinalExecutionState {
     def nextStates: Seq[ExecutionState] = calledState match {
       case x: NonFinalExecutionState => for (nextState <- x.nextStates) yield copy(calledState = nextState)
       case x @ FinishedState(_, false, _, _) => Nil // If it got rolled back, we didn't do anything useful
       case x @ FinishedState(constraints, true, result, contracts) =>
         val returnValue = x.copy(result = attackerContractReturnData(returnDataSize))
-        val otherActions = if (attacksLeft > 0) {
-          val contract = contracts(targettedContract)
-          copy(
-            calledState = RunningState(targettedContract, contracts, contract.code,
-              contract, constraints = constraints),
-            attacksLeft = attacksLeft - 1
-          ) :: Nil
-        } else Nil
-        returnValue :: otherActions
+        val otherActions = attackStates(targettedContract, contracts, returnDataSize, constraints, attacksLeft)
+        returnValue +: otherActions
     }
+
+    def recursionDepth = calledState.recursionDepth
   }
   case class RunningState(address: EVMData, contracts: Map[EVMData, Contract],
                           code: Memory, contract: Contract, instructionPointer: Int = 0,
                           stack: List[EVMData] = Nil, memory: Memory = Memory(),
                           sender: EVMData = AttackerControlledAddress,
                           callValue: EVMData = SpentMoney(1), constraints: Set[Predicate] = Set.empty,
-                          callData: Memory = DefaultCallData, callDataLength: EVMData = CallDataLength,
+                          callData: Memory = DefaultCallData, callDataLength: EVMData = CallDataLength
+                     ) extends NonFinalExecutionState {
 
-                     ) extends ExecutionState {
-
-    private def modifyStack(modifier: PartialFunction[List[EVMData], List[EVMData]])  = {
+    private def simpleInstruction(modifier: PartialFunction[List[EVMData], List[EVMData]])  = {
       modifier.lift(stack) match {
-        case Some(stack) => copy(stack = stack) :: Nil
+        case Some(stack) => copy(stack = stack, instructionPointer = instructionPointer + 1) :: Nil
         case None => FinishedState(constraints, false, SortedMap.empty, contracts) :: Nil
       }
     }
@@ -117,97 +155,99 @@ object Execution {
     }
     def nextInst = decode(code.binary, instructionPointer)
 
+    def recursionDepth = 0
+
     def nextStates: Seq[ExecutionState] = {
       val inst = decode(code.binary, instructionPointer)
       inst match {
         case STOP =>
           FinishedState(constraints, true, SortedMap.empty, contracts) :: Nil
         case ADD =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => a + b :: tail
           }
         case MUL =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => a * b :: tail
           }
         case SUB =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => a - b :: tail
           }
         case DIV =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => a / b :: tail
           }
         case SDIV =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => (a sdiv b) :: tail
           }
         case MOD =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => a % b :: tail
           }
         case SMOD =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => (a smod b) :: tail
           }
         case ADDMOD =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: c :: tail => a.addmod(b, c) :: tail
           }
         case MULMOD =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: c :: tail => a.mulmod(b, c) :: tail
           }
         case EXP =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => a ** b :: tail
           }
         case SIGNEXTEND =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => b :: tail // Yes, this is obviously wrong, but let's find out if that matters
           }
         case LT =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => (a < b) :: tail
           }
         case SLT =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => (a slt b) :: tail
           }
         case GT =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => (a > b) :: tail
           }
         case SGT =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => (a sgt b) :: tail
           }
         case EQ =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => (a === b) :: tail
           }
         case ISZERO =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: tail => !a :: tail
           }
         case AND =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => (a & b) :: tail
           }
         case OR =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => (a | b) :: tail
           }
         case XOR =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: b :: tail => (a ^ b) :: tail
           }
         case NOT =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: tail => ~a :: tail
           }
         case BYTE =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: Constant(b) :: tail => a.subBytes(b.toInt, b.toInt + 1) :: tail
             case a :: b :: tail => AndExpr(
               DivExpr(b,
@@ -216,7 +256,7 @@ object Execution {
             ) :: tail
           }
         case SHA3 =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case Constant(a) :: Constant(b) :: tail =>
               new ConstantKeccak256(
                 memory.getRange(a.toInt, b.toInt).values.toSeq,
@@ -228,34 +268,34 @@ object Execution {
               ) :: tail
           }
         case ADDRESS =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack => address :: stack
           }
         case BALANCE =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: tail if contracts contains a => contracts(a).value :: tail
             case AttackerControlledAddress :: tail => SpentMoney(1) :: tail
             case AttackerControlled() :: tail => AttackerControlled :: tail
             case _ :: tail => DefenderControlledData :: tail
           }
         case ORIGIN =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack => AttackerControlledAddress :: stack
           }
         case CALLER =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack => sender :: stack
           }
         case CALLVALUE =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack => callValue :: stack
           }
         case CALLDATALOAD =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case a :: tail => callData.get(a) :: tail
           }
         case CALLDATASIZE =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case tail => callDataLength :: tail
           }
         case CALLDATACOPY =>
@@ -266,7 +306,7 @@ object Execution {
             case _ => fail
           }
         case CODESIZE =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack => Constant(code.binary.length) :: stack
           }
         case CODECOPY =>
@@ -277,11 +317,11 @@ object Execution {
             case _ => fail
           }
         case GASPRICE =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack => AttackerControlled :: stack
           }
         case EXTCODESIZE =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case addr :: stack if contracts contains addr => contracts(addr).code.binary.length :: stack
             case AttackerControlled() :: stack => AttackerControlled :: stack
             case _ :: stack => DefenderControlledData :: stack
@@ -295,35 +335,35 @@ object Execution {
             case _ => fail
           }
         case BLOCKHASH =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case _ :: tail => DefenderControlledData :: tail
           }
         case COINBASE =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack => DefenderControlledAddress :: stack
           }
         case TIMESTAMP =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack => Timestamp :: stack
           }
         case NUMBER =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack => Blocknumber :: stack
           }
         case DIFFICULTY =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack => DefenderControlledData :: stack
           }
         case GASLIMIT =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack => DefenderControlledData :: stack
           }
         case POP =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case _ :: tail => tail
           }
         case MLOAD =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             // Consider handling possibility of attacker controlled a
             case a :: tail => memory.get(a) :: tail
           }
@@ -365,7 +405,7 @@ object Execution {
           }
         case JUMPI =>
           stack match {
-            case v :: Constant(a) :: tail if decode(code.binary, a.toInt) == JUMPDEST =>
+            case Constant(a) :: v :: tail if decode(code.binary, a.toInt) == JUMPDEST =>
               truthiness(v) match {
                 case Truthy => copy(instructionPointer = a.toInt, stack = tail) :: Nil
                 case Falsey => copy(stack = tail).incrementIP :: Nil
@@ -378,28 +418,28 @@ object Execution {
         case PC =>
           copy(stack = Constant(instructionPointer) :: stack).incrementIP :: Nil
         case MSIZE =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack => DefenderControlledData :: stack
           }
         case GAS =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack => AttackerControlled :: stack
           }
         case JUMPDEST => incrementIP :: Nil
-        case PUSH(l, data) =>
+        case PUSH(l, _) =>
           // Distrust value decoded from binary, because binary is incomplete. Get from code directly
-          val decodedValue = code.getSingleValueFromRange(instructionPointer + 1, instructionPointer + 1 + l)
+          val decodedValue = code.getSingleValueFromRange(instructionPointer + 1, l)
           copy(instructionPointer = instructionPointer + 1 + l, stack = decodedValue :: stack) :: Nil
         case DUP(n) =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack if stack.length >= n => stack(n - 1) :: stack
           }
         case SWAP(n) =>
-          incrementIP.modifyStack {
-            case stack if stack.length >= n + 1 => stack(n) :: stack.take(n) ::: stack.drop(n + 1)
+          simpleInstruction {
+            case head :: tail if tail.length >= n => tail(n - 1) :: tail.take(n - 1) ::: head  :: tail.drop(n)
           }
         case LOG(n) =>
-          incrementIP.modifyStack {
+          simpleInstruction {
             case stack if stack.length >= n + 2 => stack.drop(n + 2)
           }
         case CREATE =>
@@ -434,30 +474,23 @@ object Execution {
               val newContracts = contracts +
                 (address -> contract.copy(value = contract.value - value)) +
                 (to -> toContract.copy(value = toContract.value + value))
-              val enoughMoney = truthiness(value > contract.value)
+              val enoughMoney = truthiness(value < contract.value)
               val extraConstraints = enoughMoney match {
                 case Truthy|Falsey => Set()
-                case Maybey => Set(value > contract.value)
+                case Maybey => Set(value < contract.value)
               }
               val callData = Memory(memory.getRange(dataOffset, dataLength))
               val contractCalls: Seq[ExecutionState] = to match {
                 case AttackerControlled() =>
-                  // Attacker can call contract recursively at this juncture
-                  (for (callValue <- Seq(Constant(0), SpentMoney(1))) yield {
-                    AttackerContractState(
-                      calledState = RunningState(
-                        address = address,
-                        contracts = newContracts,
-                        contract = newContracts(address),
-                        code = newContracts(address).code,
-                        sender = AttackerControlledAddress,
-                        callValue = callValue,
-                        constraints = constraints ++ extraConstraints
-                      ),
-                      returnDataSize = returnLength,
-                      targettedContract = address
-                    )
-                  }) :+ FinishedState(constraints, true, attackerContractReturnData(returnLength), newContracts)
+                  FinishedState(
+                    constraints = constraints ++ extraConstraints,
+                    success = true,
+                    result = attackerContractReturnData(returnLength),
+                    contracts = newContracts) +:
+                  attackStates(targettedContract = address,
+                    contracts = newContracts,
+                    returnDataSize = returnLength,
+                    constraints = constraints ++ extraConstraints)
                 case to if contracts contains to =>
                   // Forward to other contract
                   Seq(RunningState(
@@ -598,7 +631,7 @@ object Execution {
             case a :: b :: tail =>
               Seq(FinishedState(constraints, true, memory.getRange(a, b), contracts))
           }
-        case UNKNOWN|INVALID =>
+        case UNKNOWN|INVALID|REVERT =>
           Seq(FinishedState(constraints, false, SortedMap.empty, contracts))
         case SELFDESTRUCT =>
           stack match {
@@ -612,6 +645,5 @@ object Execution {
           }
       }
     }
-
   }
 }

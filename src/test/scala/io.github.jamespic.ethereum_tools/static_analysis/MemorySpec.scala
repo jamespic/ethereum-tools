@@ -43,6 +43,11 @@ class MemorySpec extends FreeSpec with Matchers {
           MemRange(6, 8) -> BinaryConstant("fedc")
         )
       }
+      "should handle ranges with both ends clipped" in {
+        mem.getRange(5, 1) shouldEqual SortedMap(
+          MemRange(0, 1) -> BinaryConstant("ab")
+        )
+      }
     }
     "getBinary" - {
       val mem = Memory(knownRanges = SortedMap(
@@ -59,10 +64,14 @@ class MemorySpec extends FreeSpec with Matchers {
     "getSingleValueFromRange" - {
       val mem = Memory(knownRanges = SortedMap(
         MemRange(28, 32) -> AttackerControlled,
-        MemRange(32, 36) -> DefenderControlledData
+        MemRange(32, 36) -> DefenderControlledData,
+        MemRange(36, 44) -> BinaryConstant("0001020304050607")
       ))
       "should combine any data points in its memory range" in {
         mem.getSingleValueFromRange(4, 32) shouldEqual (AttackerControlled * (BigInt(1) << 32) + DefenderControlledData)
+      }
+      "should crop the ends of constants" in {
+        mem.getSingleValueFromRange(39, 3) shouldEqual BinaryConstant("030405")
       }
     }
     "updateRange" - {

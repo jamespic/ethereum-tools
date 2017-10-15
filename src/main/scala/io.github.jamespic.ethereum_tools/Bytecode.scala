@@ -19,7 +19,7 @@ object Bytecode {
     ops.result()
   }
 
-  def decode(code: Array[Byte], i: Int) = code.applyOrElse(i, _ => 0.toByte) & 0xff match {
+  def decode(code: Array[Byte], i: Int) = code.applyOrElse(i, (_: Int) => 0.toByte) & 0xff match {
     case 0x00 => STOP
     case 0x01 => ADD
     case 0x02 => MUL

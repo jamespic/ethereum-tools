@@ -15,28 +15,40 @@ object EVMData {
   private def s(x: BigInt) = if (x > signedUpperLimit) x - modulus else x
   private def bool(x: Boolean): Predicate = if (x) True else False
 
-  private def overflowingConstant(n: BigInt) = if (-128 < n && n < 1024) Constant(n) else DefenderControlledData
   implicit def intToConstant(i: Int): EVMData = Constant(BigInt(i))
   implicit def bigIntToConstant(i: BigInt): EVMData = Constant(i)
 }
 sealed trait EVMData {
   import EVMData._
   def +(that: EVMData): EVMData = (this, that) match {
-    case (Constant(a), Constant(b)) => overflowingConstant(a + b)
+    case (Constant(a), Constant(b)) if a == 1 && b >= 100 => DefenderControlledData
+    case (Constant(a), Constant(b)) if b == 1 && a >= 100 => DefenderControlledData
+    case (Constant(a), Constant(b)) => Constant(a + b)
     case (Constant(a), b) if a == 0 => b
     case (a, Constant(b)) if b == 0 => a
+    case (SpentMoney(a), SpentMoney(b)) => SpentMoney(a + b)
+    case (a, b) if a.hashCode < b.hashCode => AddExpr(a, b)
+    case (a, b) => AddExpr(b, a)
+  }
+  def +!(that: EVMData): EVMData = (this, that) match {
+    // Unsafe form that can grow indefinitely - only for internal use
+    case (Constant(a), Constant(b)) => Constant(a + b)
+    case (Constant(a), b) if a == 0 => b
+    case (a, Constant(b)) if b == 0 => a
+    case (SpentMoney(a), SpentMoney(b)) => SpentMoney(a + b)
     case (a, b) if a.hashCode < b.hashCode => AddExpr(a, b)
     case (a, b) => AddExpr(b, a)
   }
   def *(that: EVMData): EVMData = (this, that) match {
-    case (Constant(a), Constant(b)) => overflowingConstant(a * b)
+    case (Constant(a), Constant(b)) => Constant(a * b)
     case (Constant(a), b) if a == 1 => b
     case (a, Constant(b)) if b == 1 => a
     case (a, b) if a.hashCode < b.hashCode => MulExpr(a, b)
     case (a, b) => MulExpr(b, a)
   }
   def -(that: EVMData): EVMData = (this, that) match {
-    case (Constant(a), Constant(b)) => overflowingConstant(a - b)
+    case (Constant(a), Constant(b)) => Constant(a - b)
+    case (SpentMoney(a), SpentMoney(b)) => SpentMoney(a - b)
     case (a, Constant(b)) if b == 0 => a
     case (a, b) => SubExpr(a, b)
   }
@@ -62,21 +74,24 @@ sealed trait EVMData {
     case (a, b) => ModExpr(a, b)
   }
   def addmod(that: EVMData, m: EVMData): EVMData = (this, that, m) match {
-    case (Constant(a), Constant(b), Constant(c)) => overflowingConstant((a + b) % c)
+    case (Constant(a), Constant(b), Constant(c)) => Constant((a + b) % c)
     case (a, b, c) if a.hashCode < b.hashCode => ModExpr(AddExpr(a, b), c)
     case (a, b, c) => ModExpr(AddExpr(b, a), c)
   }
   def mulmod(that: EVMData, m: EVMData): EVMData = (this, that, m) match {
-    case (Constant(a), Constant(b), Constant(c)) => overflowingConstant((a * b) % c)
+    case (Constant(a), Constant(b), Constant(c)) => Constant((a * b) % c)
     case (a, b, c) if a.hashCode < b.hashCode => ModExpr(MulExpr(a, b), c)
     case (a, b, c) => ModExpr(MulExpr(b, a), c)
   }
   def **(that: EVMData): EVMData = (this, that) match {
-    case (Constant(a), Constant(b)) => overflowingConstant(a.modPow(b, modulus))
+    case (Constant(a), Constant(b)) => Constant(a.modPow(b, modulus))
     case (a, b) => ExpExpr(a, b)
   }
   def <(that: EVMData): Predicate = (this, that) match {
     case (Constant(a), Constant(b)) => bool(u(a) < u(b))
+    case (SpentMoney(a), SpentMoney(b)) => bool(a < b)
+    case (Constant(a), SpentMoney(b)) if a == 0 => bool(0 < b)
+    case (SpentMoney(a), Constant(b)) if b == 0 => bool(a < 0)
     case (a, b) => LessThan(a, b)
   }
   def slt(that: EVMData): Predicate = (this, that) match {
@@ -97,6 +112,9 @@ sealed trait EVMData {
   }
   def &(that: EVMData): EVMData = (this, that) match {
     case (Constant(a), Constant(b)) => Constant(u(a) & u(b))
+    case (Constant(d), x) if (d & (d + 1)) == 0 && (d + 1).lowestSetBit % 8 == 0 =>
+      val byteCount = (d + 1).lowestSetBit / 8
+      x.clipHighBytes(byteCount)
     case (x, Constant(d)) if (d & (d + 1)) == 0 && (d + 1).lowestSetBit % 8 == 0 =>
       val byteCount = (d + 1).lowestSetBit / 8
       x.clipHighBytes(byteCount)
@@ -123,7 +141,7 @@ sealed trait EVMData {
     this match {
       case b: BinaryConstant =>
         new BinaryConstant(b.binData.slice(b.binData.length - byteCount, b.binData.length))
-      case CallData(start, length) => CallData(start + length - byteCount, length - byteCount)
+      case CallData(start, length) => CallData(start + length - byteCount, byteCount)
       case Constant(n) => Constant(u(n) & mask)
       case a => AndExpr(a, Constant(mask))
     }
@@ -145,7 +163,7 @@ sealed trait EVMData {
       case a => AndExpr(DivExpr(a, Constant(1 << ((32 - endBytes) * 8))), mask)
     }
   }
-  def isConstant = self match {
+  def isConstant = this match {
     case Constant(_) => true
     case _ => false
   }
