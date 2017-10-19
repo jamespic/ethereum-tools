@@ -80,8 +80,10 @@ case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) exte
       acc match {
         case Some(range) =>
           combinations match {
-            case head :: tail => rangeIntersectionRec(tail, rangeFromLinearCombination(head) intersection range)
-            case Nil => Some(range)
+            case head :: tail =>
+              val rangeForThis = rangeFromLinearCombination(head)
+              rangeIntersectionRec(tail, rangeForThis intersection range)
+            case Nil => acc
           }
         case None => None
       }
@@ -116,6 +118,7 @@ object LinearConstraintSet {
        */
       val oneRowLinearCombination = LinearClause(clause -> Rational(1))
       def eliminate(row: Row[T]): Either[GaussianEliminationState[T], LinearCombination[T]] = {
+        println(row)
         row.clause.terms.headOption match {
           case Some((leadTerm, leadFactor)) =>
             // and check if there's already a row with this lead term

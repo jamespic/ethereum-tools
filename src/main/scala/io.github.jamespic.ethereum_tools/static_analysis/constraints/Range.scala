@@ -26,15 +26,15 @@ case class Range(lowerBound: Bound, upperBound: Bound) extends HashMemo {
     }
     Range(
       addBounds(this.lowerBound, that.lowerBound),
-      addBounds(this.upperBound, that.lowerBound)
+      addBounds(this.upperBound, that.upperBound)
     )
   }
 
   def intersection(that: Range): Option[Range] = {
     if (this disjoint that) None
     else Some(Range(
-      if (otherHasLowerUpperBound(that)) that.upperBound else this.upperBound,
-      if (otherHasHigherLowerBound(that)) that.lowerBound else this.lowerBound
+      if (otherHasHigherLowerBound(that)) that.lowerBound else this.lowerBound,
+      if (otherHasLowerUpperBound(that)) that.upperBound else this.upperBound
     ))
   }
 
