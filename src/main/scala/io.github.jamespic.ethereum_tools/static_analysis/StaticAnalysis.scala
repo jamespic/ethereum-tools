@@ -1,11 +1,6 @@
 package io.github.jamespic.ethereum_tools.static_analysis
 
 import io.github.jamespic.ethereum_tools._
-import Bytecode._
-import Truthiness.truthiness
-import io.github.jamespic.ethereum_tools.static_analysis.listeners.SentMoneyListener
-
-import scala.collection.SortedMap
 
 object StaticAnalysis {
   import Execution._
@@ -22,8 +17,12 @@ object StaticAnalysis {
 
   def analyseContract[T](address: BigInt, contracts: Map[EVMData, Contract], listener: StateListener[T]): Iterable[(Interest[T], FinishedState)] = {
     var visitedExecutionStates = Set.empty[ExecutionState]
-    var pendingStates: Iterable[(StateListener[T], ExecutionState)] =
-      attackStates(address, contracts, 0, Set()) map (x => (listener(x), x))
+    val startingState = attackState(address, contracts, 0)
+
+    var pendingStates: Iterable[(StateListener[T], ExecutionState)] = Seq(
+      (listener(startingState), startingState)
+    )
+
     var finishedStates = Set.empty[(Interest[T], FinishedState)]
     while (pendingStates.nonEmpty) {
       pendingStates = pendingStates flatMap {
@@ -37,8 +36,11 @@ object StaticAnalysis {
           for (nextState <- x.nextStates) yield {
             val nextListener = lastListener(nextState)
             if (lastListener.interest == NotInteresting && nextListener.interest != NotInteresting) {
-              println(s"New interesting thing: ${nextListener.interest}")
-              for (constraint <- nextState.constraints) println(s" - $constraint")
+              println(
+                s"""New interesting thing
+                   |=====================
+                   |${nextListener.interest}""".stripMargin)
+              println(nextState.context)
             }
             (nextListener, nextState)
           }

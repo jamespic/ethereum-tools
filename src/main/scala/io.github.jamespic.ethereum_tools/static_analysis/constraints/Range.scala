@@ -114,7 +114,10 @@ case class Range(lowerBound: Bound, upperBound: Bound) extends HashMemo {
 
   override def toString = toString("x")
   def toString(varName: Any) = (lowerBound, upperBound) match {
-    case (ClosedBound(x), ClosedBound(y)) if x == y => s"$varName == $x" // Format equality specially
+    case (ClosedBound(x), ClosedBound(y)) if x == y =>
+      // Format equality specially - with integers being an extra special exception that are hex encoded
+      if (x.denom == 1) s"$varName == 0x${x.num.toString(16)}"
+      else s"$varName == $x"
     case _ =>
       val leftPart = lowerBound match {
         case NoBound => ""

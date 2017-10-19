@@ -1,12 +1,11 @@
 package io.github.jamespic.ethereum_tools.static_analysis
 
-import io.github.jamespic.ethereum_tools.static_analysis.Execution.FinishedState
-
 import scala.collection.SortedMap
 import org.ethereum.vm.PrecompiledContracts.{BN128Addition, BN128Multiplication, BN128Pairing, ModExp, PrecompiledContract => EJPC}
 
 object PrecompiledContracts {
-  type Precompiled = (Memory, EVMData) => Seq[FinishedState]
+  case class PrecompiledResult(success: Boolean, data: SortedMap[MemRange, EVMData])
+  type Precompiled = (Memory, EVMData) => Seq[PrecompiledResult]
   val Contracts: Map[Int, Precompiled] = Map(
     1 -> ecRecover _,
     2 -> sha256 _,
@@ -17,32 +16,28 @@ object PrecompiledContracts {
     7 -> bnMul _,
     8 -> bnPair _
   )
-  def ecRecover(memory: Memory, length: EVMData): Seq[FinishedState] = {
+  def ecRecover(memory: Memory, length: EVMData): Seq[PrecompiledResult] = {
     val (m, v, r, s) = (memory.get(0), memory.get(32), memory.get(64), memory.get(96))
     val successResults = (m, v, r, s) match {
       case (AttackerControlled(), AttackerControlled(), AttackerControlled(), AttackerControlled()) =>
         Seq(
-          FinishedState(
-            Set.empty,
+          PrecompiledResult(
             true,
-            SortedMap(MemRange(0, 32) -> AttackerControlledAddress),
-            Map.empty
+            SortedMap(MemRange(0, 32) -> AttackerControlledAddress)
           )
         )
       case (DefenderControlled(), DefenderControlled(), DefenderControlled(), DefenderControlled()) =>
         Seq(
-          FinishedState(
-            Set(),
+          PrecompiledResult(
             true,
-            SortedMap(MemRange(0, 32) -> DefenderControlledAddress),
-            Map.empty
+            SortedMap(MemRange(0, 32) -> DefenderControlledAddress)
           )
         )
       case _ => Nil
     }
-    successResults :+ FinishedState(Set.empty, false, SortedMap.empty, Map.empty)
+    successResults :+ PrecompiledResult(false, SortedMap.empty)
   }
-  def sha256(memory: Memory, length: EVMData): Seq[FinishedState] = {
+  def sha256(memory: Memory, length: EVMData): Seq[PrecompiledResult] = {
     val hash = length match {
       case Constant(l) =>
         new ConstantSHA256(
@@ -54,9 +49,9 @@ object PrecompiledContracts {
           memory.getRange(0, l).values.toSeq: _*
         )
     }
-    Seq(FinishedState(Set.empty, true, SortedMap(MemRange(0, 32) -> hash), Map.empty))
+    Seq(PrecompiledResult(true, SortedMap(MemRange(0, 32) -> hash)))
   }
-  def ripemd(memory: Memory, length: EVMData): Seq[FinishedState] = {
+  def ripemd(memory: Memory, length: EVMData): Seq[PrecompiledResult] = {
     val hash = length match {
       case Constant(l) =>
         new ConstantRipemd(
@@ -68,10 +63,10 @@ object PrecompiledContracts {
           memory.getRange(0, l).values.toSeq: _*
         )
     }
-    Seq(FinishedState(Set.empty, true, SortedMap(MemRange(0, 32) -> hash), Map.empty))
+    Seq(PrecompiledResult(true, SortedMap(MemRange(0, 32) -> hash)))
   }
-  def memcopy(memory: Memory, length: EVMData) = Seq(FinishedState(Set.empty, true, memory.getRange(0, length), Map.empty))
-  def modexp(memory: Memory, length: EVMData): Seq[FinishedState] = {
+  def memcopy(memory: Memory, length: EVMData) = Seq(PrecompiledResult(true, memory.getRange(0, length)))
+  def modexp(memory: Memory, length: EVMData): Seq[PrecompiledResult] = {
     val baseLen = memory.get(0)
     val expLen = memory.get(32)
     val modLen = memory.get(64)
@@ -85,10 +80,10 @@ object PrecompiledContracts {
         val exp = memory.get(96 + baseLen, expLen)
         val mod = memory.get(96 + baseLen + expLen, modLen)
         val symbolicResult = ModExpr(ExpExpr(base, exp), mod)
-        Seq(FinishedState(Set.empty, true, SortedMap(MemRange(0, 32) -> symbolicResult), Map.empty))
+        Seq(PrecompiledResult(true, SortedMap(MemRange(0, 32) -> symbolicResult)))
     }
   }
-  def bnAdd(memory: Memory, length: EVMData): Seq[FinishedState] = {
+  def bnAdd(memory: Memory, length: EVMData): Seq[PrecompiledResult] = {
     if (memory.getRange(0, 128).values.forall(_.isConstant)) {
       wrapEthereumJ(memory, new BN128Addition())
     } else {
@@ -98,13 +93,13 @@ object PrecompiledContracts {
       val y2 = memory.get(96)
       val result = CurvePoint(x1, y1) + CurvePoint(x2, y2)
       Seq(
-        FinishedState(Set.empty, true, SortedMap(MemRange(0, 64) -> result), Map.empty),
-        FinishedState(Set.empty, false, SortedMap(), Map.empty)
+        PrecompiledResult(true, SortedMap(MemRange(0, 64) -> result)),
+        PrecompiledResult(false, SortedMap())
       )
     }
 
   }
-  def bnMul(memory: Memory, length: EVMData): Seq[FinishedState] = {
+  def bnMul(memory: Memory, length: EVMData): Seq[PrecompiledResult] = {
     if (memory.getRange(0, 96).values.forall(_.isConstant)) {
       wrapEthereumJ(memory, new BN128Multiplication())
     } else {
@@ -113,13 +108,13 @@ object PrecompiledContracts {
       val s = memory.get(64)
       val result = MulExpr(s, CurvePoint(x, y))
       Seq(
-        FinishedState(Set.empty, true, SortedMap(MemRange(0, 64) -> result), Map.empty),
-        FinishedState(Set.empty, false, SortedMap(), Map.empty)
+        PrecompiledResult(true, SortedMap(MemRange(0, 64) -> result)),
+        PrecompiledResult(false, SortedMap())
       )
     }
 
   }
-  def bnPair(memory: Memory, length: EVMData): Seq[FinishedState] = {
+  def bnPair(memory: Memory, length: EVMData): Seq[PrecompiledResult] = {
     // I have no fucking clue what a pairing is, so until I do, I can't do anything smarter than letting EthereumJ handle this
     wrapEthereumJ(memory, new BN128Pairing())
   }
@@ -127,6 +122,6 @@ object PrecompiledContracts {
     val result = contract.execute(memory.binary)
     val success = result.getLeft.booleanValue
     val output = result.getRight
-    Seq(FinishedState(Set.empty, success, SortedMap(MemRange(0,output.length) -> BinaryConstant(output)), Map.empty))
+    Seq(PrecompiledResult(success, SortedMap(MemRange(0,output.length) -> BinaryConstant(output))))
   }
 }

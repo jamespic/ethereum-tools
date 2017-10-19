@@ -2,24 +2,21 @@ package io.github.jamespic.ethereum_tools.static_analysis
 
 import io.github.jamespic.ethereum_tools._
 import Bytecode._
-import Truthiness.truthiness
+import io.github.jamespic.ethereum_tools.static_analysis.constraints._
 
 import scala.collection.SortedMap
 
 object Execution {
-  def reachableMapValues(key: EVMData, map: Map[EVMData, EVMData]): Seq[(EVMData, Set[Predicate])] = {
-    val results = for {
-      (k, v) <- map
-      allowedExpr = key === k
-      isTruthy = truthiness(allowedExpr)
-      if isTruthy != Falsey
-      constraints = isTruthy match {
-        case Truthy => Set.empty[Predicate]
-        case Maybey => Set(allowedExpr)
-        case Falsey => Set.empty[Predicate]
-      }
-    } yield (v, constraints)
-    if (results.nonEmpty) results.toSeq else Seq((Constant(0), Set.empty))
+  def reachableMapValues(key: EVMData, map: Map[EVMData, EVMData], context: Context): Seq[(EVMData, Context)] = {
+    val results = map flatMap {
+      case (k, v) =>
+        context.implies(key === k) match {
+          case Always => Seq((v, context))
+          case Sometimes(yesWhen, _) => yesWhen.toSeq.map(ctx => (v, ctx))
+          case Never => Nil
+        }
+    }
+    if (results.nonEmpty) results.toSeq else Seq((Constant(0), context))
   }
 
 
@@ -27,150 +24,142 @@ object Execution {
                       value: EVMData = Constant(0), nonce: Int = 0) extends HashMemo
 
   def defaultCallData(callId: Int = 0) = Memory(SortedMap(MemRange(0, 4096) -> CallData(0, 4096, callId)))
-  def attackerContractReturnData(returnDataSize: Int) = {
-    SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize))
+  def attackerContractReturnData(returnDataSize: Int, callId: Int) = {
+    SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize, callId))
   }
-  def attackerContractReturnData(dataLength: EVMData) = {
+  def attackerContractReturnData(dataLength: EVMData, callId: Int) = {
     val returnDataSize = dataLength match {
       case Constant(n) => n.toInt
       case _ => 0
     }
-    SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize))
+    SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize, callId))
   }
-  val recursionLimit = 3
-  val repeatAttacks = 2
+  val maxCalls = 10
+
+  case class Context(constraints: EVMConstraints = EVMConstraints(),
+                     callCount: Int = 0) {
+    def incrementCalls = copy(callCount = callCount + 1)
+    def addSpentMoneyConstraint(m: SpentMoney) = {
+      val rawConstraints = constraints.linearConstraints.constraints  +
+        (LinearClause((m: AttackerControlled) -> Rational(1)) -> Range(ClosedBound(0), NoBound))
+
+      copy(constraints = constraints.copy(linearConstraints = LinearConstraintSet(rawConstraints)))
+    }
+    def implies(predicate: EVMData) = constraints.implies(predicate).map(x => copy(constraints = x))
+    override def toString =
+      s"""
+         |Linear Constraints
+         |------------------
+         |${constraints.linearConstraints}
+         |
+         |Other Constraints
+         |-----------------
+         |${constraints.otherConstraints.mkString("\n")}
+         |
+         |Call Count: $callCount
+      |""".stripMargin
+  }
   sealed trait ExecutionState {
-    def recursionDepth: Int
-    def constraints: Set[Predicate]
+    def context: Context
   }
   sealed trait NonFinalExecutionState extends ExecutionState {
     def nextStates: Seq[ExecutionState]
   }
-  case class FinishedState(constraints: Set[Predicate], success: Boolean,
+  case class FinishedState(context: Context, success: Boolean,
                            result: SortedMap[MemRange, EVMData],
                            contracts: Map[EVMData, Contract]) extends ExecutionState with HashMemo {
     def recursionDepth = 0
   }
   case class ContractCallState(returnState: RunningState, calledState: ExecutionState,
-                               returnLoc: EVMData = 0, returnSize: EVMData = 0) extends NonFinalExecutionState with HashMemo {
+                               returnLoc: EVMData = 0, returnSize: EVMData = 0,
+                               context: Context = Context()) extends NonFinalExecutionState with HashMemo {
     def nextStates: Seq[ExecutionState] = {
-      if (recursionDepth > recursionLimit) Nil
+      if (context.callCount >= maxCalls) Nil
       else calledState match {
         case x: NonFinalExecutionState => for (nextState <- x.nextStates) yield copy(calledState = nextState)
-        case FinishedState(constraints, success, result, contracts) =>
+        case FinishedState(context, success, result, contracts) =>
           if (success) {
             returnState.copy(
               stack = True :: returnState.stack,
               memory = returnState.memory.putRange(returnLoc, returnSize, result),
-              contracts = contracts,
-              constraints = returnState.constraints ++ constraints
+              context = context,
+              contracts = contracts
             ) :: Nil
           } else {
             returnState.copy(
               stack = False :: returnState.stack,
-              constraints = returnState.constraints ++ constraints
+              context = context
             ) :: Nil
           }
 
       }
     }
-    def recursionDepth = calledState.recursionDepth + 1
-    def constraints = returnState.constraints ++ calledState.constraints
   }
 
-  def attackStates(targettedContract: EVMData, contracts: Map[EVMData, Contract],
-                   returnDataSize: EVMData, constraints: Set[Predicate], callId: Int = 0,
-                   attacksLeft: Int = repeatAttacks) = {
+  def attackState(targettedContract: EVMData, contracts: Map[EVMData, Contract],
+                   returnDataSize: EVMData, context: Context = Context()) = {
     val contract = contracts(targettedContract)
-    Seq(
-      AttackerContractState(
-        targettedContract = targettedContract,
-        calledState = RunningState(
-          address = targettedContract,
-          contracts = contracts,
-          code = contract.code,
-          contract = contract,
-          constraints = constraints,
-          callData = defaultCallData(callId),
-          callValue = Constant(0)
-        ),
-        returnDataSize = returnDataSize,
-        attacksLeft = attacksLeft
+    val victim = contracts(targettedContract)
+    val attackerContract = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
+    val callValue = SpentMoney(context.callCount)
+    val newContracts = contracts +
+      (targettedContract -> victim.copy(value = victim.value + callValue)) +
+      (AttackerControlledAddress -> attackerContract.copy(value = attackerContract.value - callValue))
+    val newContext = context.incrementCalls.addSpentMoneyConstraint(callValue)
+    AttackerContractState(
+      targettedContract = targettedContract,
+      calledState = RunningState(
+        address = targettedContract,
+        contracts = newContracts,
+        code = contract.code,
+        context = newContext,
+        callData = defaultCallData(context.callCount),
+        callValue = callValue
       ),
-      {
-        val victim = contracts(targettedContract)
-        val attackerContract = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
-        val newContracts = contracts +
-          (targettedContract -> victim.copy(value = victim.value + SpentMoney(1))) +
-          (AttackerControlledAddress -> attackerContract.copy(value = attackerContract.value - SpentMoney(1)))
-        AttackerContractState(
-          targettedContract = targettedContract,
-          calledState = RunningState(
-            address = targettedContract,
-            contracts = contracts,
-            code = contract.code,
-            contract = contract,
-            constraints = constraints,
-            callData = defaultCallData(callId),
-            callValue = Constant(0)
-          ),
-          returnDataSize = returnDataSize,
-          attacksLeft = attacksLeft
-        )
-      }
-
+      returnDataSize = returnDataSize,
+      context = newContext
     )
   }
   case class AttackerContractState(calledState: ExecutionState,
                                    returnDataSize: EVMData,
                                    targettedContract: EVMData,
-                                   attacksLeft: Int = repeatAttacks) extends NonFinalExecutionState with HashMemo {
+                                   context: Context) extends NonFinalExecutionState with HashMemo {
     def nextStates: Seq[ExecutionState] = calledState match {
       case x: NonFinalExecutionState => for (nextState <- x.nextStates) yield copy(calledState = nextState)
       case x @ FinishedState(_, false, _, _) => Nil // If it got rolled back, we didn't do anything useful
-      case x @ FinishedState(constraints, true, result, contracts) =>
-        val returnValue = x.copy(result = attackerContractReturnData(returnDataSize))
-        val otherActions = if (attacksLeft - 1 > 0) {
-          attackStates(
-            targettedContract = targettedContract,
-            contracts = contracts,
-            returnDataSize = returnDataSize,
-            constraints = constraints,
-            callId = repeatAttacks + 1 - attacksLeft,
-            attacksLeft = attacksLeft - 1)
+      case x @ FinishedState(context, true, _, contracts) =>
+        val returnValue = x.copy(result = attackerContractReturnData(returnDataSize, context.callCount))
+        val otherActions = if (context.callCount < maxCalls) {
+          Seq(
+            attackState(
+              targettedContract = targettedContract,
+              contracts = contracts,
+              returnDataSize = returnDataSize,
+              context = context.incrementCalls
+            )
+          )
         } else Nil
         returnValue +: otherActions
     }
-
-    def recursionDepth = calledState.recursionDepth
-    def constraints = calledState.constraints
   }
   case class RunningState(address: EVMData, contracts: Map[EVMData, Contract],
-                          code: Memory, contract: Contract, instructionPointer: Int = 0,
+                          code: Memory, instructionPointer: Int = 0,
                           stack: List[EVMData] = Nil, memory: Memory = Memory(),
                           sender: EVMData = AttackerControlledAddress,
-                          callValue: EVMData = SpentMoney(1), constraints: Set[Predicate] = Set.empty,
+                          callValue: EVMData = Constant(0), context: Context = Context(),
                           callData: Memory = defaultCallData(), callDataLength: EVMData = CallDataLength
                      ) extends NonFinalExecutionState with HashMemo {
-
+    lazy val contract = contracts(address)
     private def simpleInstruction(modifier: PartialFunction[List[EVMData], List[EVMData]])  = {
       modifier.lift(stack) match {
         case Some(stack) => copy(stack = stack, instructionPointer = instructionPointer + 1) :: Nil
-        case None => FinishedState(constraints, false, SortedMap.empty, contracts) :: Nil
+        case None => FinishedState(context, false, SortedMap.empty, contracts) :: Nil
       }
     }
+    def balance = contracts.get(address).map(_.value).getOrElse(Constant(0))
 
     private def incrementIP = copy(instructionPointer = instructionPointer + 1)
-    private def fail = FinishedState(constraints, false, SortedMap.empty, contracts) :: Nil
-    private def withConstraint(value: EVMData) = value match {
-      case x: Predicate => copy(constraints = constraints + x)
-      case y => copy(constraints = constraints + Not(Equals(y, Constant(0))))
-    }
-    private def withAntiConstraint(value: EVMData) = value match {
-      case Not(x: Predicate) => copy(constraints = constraints + x)
-      case x: Predicate => copy(constraints = constraints + Not(x))
-      case y => copy(constraints = constraints + Equals(y, Constant(0)))
-    }
+    private def fail = FinishedState(context, false, SortedMap.empty, contracts) :: Nil
     def nextInst = decode(code.binary, instructionPointer)
 
     def recursionDepth = 0
@@ -179,7 +168,7 @@ object Execution {
       val inst = decode(code.binary, instructionPointer)
       inst match {
         case STOP =>
-          FinishedState(constraints, true, SortedMap.empty, contracts) :: Nil
+          FinishedState(context, true, SortedMap.empty, contracts) :: Nil
         case ADD =>
           simpleInstruction {
             case a :: b :: tail => a + b :: tail
@@ -292,7 +281,6 @@ object Execution {
         case BALANCE =>
           simpleInstruction {
             case a :: tail if contracts contains a => contracts(a).value :: tail
-            case AttackerControlledAddress :: tail => SpentMoney(1) :: tail
             case AttackerControlled() :: tail => AttackerControlled :: tail
             case _ :: tail => DefenderControlledData :: tail
           }
@@ -403,8 +391,8 @@ object Execution {
         case SLOAD =>
           stack match {
             case a :: tail =>
-              for ((v, newConstraints) <- reachableMapValues(a, contract.storage)) yield {
-                copy(stack = v :: tail, constraints = constraints ++ newConstraints).incrementIP
+              for ((v, newContext) <- reachableMapValues(a, contract.storage, context)) yield {
+                copy(stack = v :: tail, context = newContext).incrementIP
               }
             case _ => fail
           }
@@ -424,12 +412,15 @@ object Execution {
         case JUMPI =>
           stack match {
             case Constant(a) :: v :: tail if decode(code.binary, a.toInt) == JUMPDEST =>
-              truthiness(v) match {
-                case Truthy => copy(instructionPointer = a.toInt, stack = tail) :: Nil
-                case Falsey => copy(stack = tail).incrementIP :: Nil
-                case Maybey =>
-                  copy(instructionPointer = a.toInt, stack = tail).withConstraint(v) ::
-                    copy(stack = tail).incrementIP.withAntiConstraint(v) :: Nil
+              context.implies(v) match {
+                case Always => copy(instructionPointer = a.toInt, stack = tail) :: Nil
+                case Never => copy(stack = tail).incrementIP :: Nil
+                case Sometimes(whenYes, whenNo) =>
+                  (
+                    whenYes.map(context => copy(instructionPointer = a.toInt, stack = tail, context = context))
+                      ++
+                    whenNo.map(context => copy(stack = tail, context = context).incrementIP)
+                  ).toSeq
               }
             case _ => fail
           }
@@ -474,14 +465,17 @@ object Execution {
                   )) + (newContractAddress -> newContract)
                 ).incrementIP
               }
-              truthiness(value > contract.value) match {
-                case Truthy =>
+              context.implies(value > contract.value) match {
+                case Always =>
                   newContract :: Nil
-                case Falsey =>
+                case Never =>
                   fail
-                case Maybey =>
-                  newContract.withConstraint(value > contract.value) ::
-                  FinishedState(constraints + (value < contract.value), false, SortedMap.empty, contracts) :: Nil
+                case Sometimes(whenYes, whenNo) =>
+                  (
+                    whenYes.map(context => newContract.copy(context = context))
+                      ++
+                    whenNo.map(context => FinishedState(context, false, SortedMap.empty, contracts))
+                  ).toSeq
               }
             case _ => fail
           }
@@ -492,56 +486,60 @@ object Execution {
               val newContracts = contracts +
                 (address -> contract.copy(value = contract.value - value)) +
                 (to -> toContract.copy(value = toContract.value + value))
-              val enoughMoney = truthiness(value < contract.value)
-              val extraConstraints = enoughMoney match {
-                case Truthy|Falsey => Set()
-                case Maybey => Set(value < contract.value)
+              val enoughMoney = context.implies(value <= contracts(address).value)
+              val enoughMoneyContexts = enoughMoney match {
+                case Always => Set(context)
+                case Sometimes(whenYes, whenNo) => whenYes
+                case Never => Set.empty
               }
               val callData = Memory(memory.getRange(dataOffset, dataLength))
-              val contractCalls: Seq[ExecutionState] = to match {
+              def contractCalls(context: Context): Seq[ExecutionState] = to match {
                 case AttackerControlled() =>
-                  FinishedState(
-                    constraints = constraints ++ extraConstraints,
-                    success = true,
-                    result = attackerContractReturnData(returnLength),
-                    contracts = newContracts) +:
-                  attackStates(targettedContract = address,
-                    contracts = newContracts,
-                    returnDataSize = returnLength,
-                    constraints = constraints ++ extraConstraints,
-                    attacksLeft = 0
+                  Seq(
+                    FinishedState(
+                      context = context,
+                      success = true,
+                      result = attackerContractReturnData(returnLength, context.callCount),
+                      contracts = newContracts),
+                    attackState(
+                      contracts = newContracts,
+                      targettedContract = address,
+                      context = context,
+                      returnDataSize = returnLength
+                    )
                   )
                 case to if contracts contains to =>
                   // Forward to other contract
                   Seq(RunningState(
                     address = to,
                     contracts = newContracts,
-                    contract = newContracts(address),
                     code = newContracts(address).code,
                     sender = address,
                     callValue = value,
                     callData = callData,
-                    constraints = constraints ++ extraConstraints
+                    context = context
                   ))
                 case Constant(n) if PrecompiledContracts.Contracts contains n.toInt =>
                   PrecompiledContracts.Contracts(n.toInt)(callData, callDataLength) map {result =>
-                    result.copy(
-                      constraints = result.constraints ++ constraints ++ extraConstraints,
-                      contracts = newContracts
-                    )
+                    FinishedState(context, result.success, result.data, newContracts)
                   }
                 case _ =>
                   // Not a contract, just send money
-                  Seq(FinishedState(constraints ++ extraConstraints, true, SortedMap.empty, newContracts))
+                  Seq(FinishedState(context, true, SortedMap.empty, newContracts))
               }
-              (for (calledState <- contractCalls if enoughMoney != Falsey) yield {
+              (for {
+                  newContext <- enoughMoneyContexts.toSeq
+                  incrementedContext = newContext.incrementCalls
+                  calledState <- contractCalls(incrementedContext)
+              } yield {
                 ContractCallState(
                   returnState = this.copy(
                     stack = tail
                   ).incrementIP,
                   calledState = calledState,
                   returnLoc = returnOffset,
-                  returnSize = returnLength
+                  returnSize = returnLength,
+                  context = incrementedContext
                 )
               }) :+ this.copy(stack = False :: stack).incrementIP
             case _ => fail
@@ -560,29 +558,27 @@ object Execution {
                       val attackerAccount = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
                       attackerAccount.copy(value = attackerAccount.value + contract.value)
                     })
-                  Seq(FinishedState(Set.empty, true, attackerContractReturnData(returnLength), newContracts))
+                  Seq(FinishedState(
+                    context, true, attackerContractReturnData(returnLength, context.callCount),newContracts
+                  ))
                 case to if contracts contains to =>
                   // Forward to other contract
                   Seq(RunningState(
                     address = address,
                     contracts = contracts,
-                    contract = contract,
                     code = toContract.code,
                     sender = address,
                     callValue = value,
                     callData = callData,
-                    constraints = constraints
+                    context = context
                   ))
                 case Constant(n) if PrecompiledContracts.Contracts contains n.toInt =>
                   PrecompiledContracts.Contracts(n.toInt)(callData, callDataLength) map {result =>
-                    result.copy(
-                      constraints = result.constraints ++ constraints,
-                      contracts = contracts
-                    )
+                    FinishedState(context, result.success, result.data, contracts)
                   }
                 case _ =>
                   // A weird thing to do, but strictly valid
-                  Seq(FinishedState(constraints, true, SortedMap.empty, contracts))
+                  Seq(FinishedState(context, true, SortedMap.empty, contracts))
               }
               (for (calledState <- contractCalls) yield {
                 ContractCallState(
@@ -610,29 +606,27 @@ object Execution {
                       val attackerAccount = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
                       attackerAccount.copy(value = attackerAccount.value + contract.value)
                     })
-                  Seq(FinishedState(Set.empty, true, attackerContractReturnData(returnLength), newContracts))
+                  Seq(FinishedState(
+                    context, true, attackerContractReturnData(returnLength, context.callCount), newContracts)
+                  )
                 case to if contracts contains to =>
                   // Forward to other contract
                   Seq(RunningState(
                     address = address,
                     contracts = contracts,
-                    contract = contract,
                     code = toContract.code,
                     sender = sender,
                     callValue = callValue,
                     callData = callData,
-                    constraints = constraints
+                    context = context
                   ))
                 case Constant(n) if PrecompiledContracts.Contracts contains n.toInt =>
                   PrecompiledContracts.Contracts(n.toInt)(callData, callDataLength) map {result =>
-                    result.copy(
-                      constraints = result.constraints ++ constraints,
-                      contracts = contracts
-                    )
+                    FinishedState(context, result.success, result.data, contracts)
                   }
                 case _ =>
                   // A weird thing to do, but strictly valid
-                  Seq(FinishedState(constraints, true, SortedMap.empty, contracts))
+                  Seq(FinishedState(context, true, SortedMap.empty, contracts))
               }
               (for (calledState <- contractCalls) yield {
                 ContractCallState(
@@ -649,19 +643,19 @@ object Execution {
         case RETURN =>
           stack match {
             case a :: b :: tail =>
-              Seq(FinishedState(constraints, true, memory.getRange(a, b), contracts))
+              Seq(FinishedState(context, true, memory.getRange(a, b), contracts))
             case _ => fail
           }
         case UNKNOWN|INVALID|REVERT =>
-          Seq(FinishedState(constraints, false, SortedMap.empty, contracts))
+          Seq(FinishedState(context, false, SortedMap.empty, contracts))
         case SELFDESTRUCT =>
           stack match {
             case a :: tail =>
               val recipient = contracts.getOrElse(a, Contract(Memory()))
               Seq(
-                FinishedState(constraints, true, SortedMap.empty,
+                FinishedState(context, true, SortedMap.empty,
                   contracts - address + (a -> recipient.copy(value = contract.value))),
-                FinishedState(constraints, false, SortedMap.empty, contracts) // Yes, SELFDESTRUCT can fail
+                FinishedState(context, false, SortedMap.empty, contracts) // Yes, SELFDESTRUCT can fail
               )
             case _ => fail
           }

@@ -27,6 +27,6 @@ object CliApp extends App {
   val address = BigInt(1000000)
   val contracts = Map[EVMData, Contract](Constant(address) -> simpleContract)
   for ((interest, state) <- analyseContract(address, contracts, SentMoneyListener())) {
-    println(s"Interest: $interest, State: $state")
+    println(s"Interest: $interest, When:\n${state.context}")
   }
 }

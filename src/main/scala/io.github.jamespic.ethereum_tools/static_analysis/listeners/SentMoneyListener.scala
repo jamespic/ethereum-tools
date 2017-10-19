@@ -2,23 +2,24 @@ package io.github.jamespic.ethereum_tools.static_analysis.listeners
 
 import io.github.jamespic.ethereum_tools.static_analysis._
 import StaticAnalysis._
-import Truthiness.truthiness
 import io.github.jamespic.ethereum_tools.Bytecode._
 import io.github.jamespic.ethereum_tools.static_analysis.Execution._
+import io.github.jamespic.ethereum_tools.static_analysis.constraints._
 
-case class Balance(value: EVMData)
-case class SentMoneyListener(balance: Balance = Balance(0)) extends StateListener[Balance] {
+case class SentMoneyListener(balance: EVMData = Constant(0),
+                             balancePositive: When[Execution.Context] = Never) extends StateListener[String] {
   override def apply(state: Execution.ExecutionState) = state match {
     case FinishedState(_, true, _, contracts) =>
       val newBalance = contracts.collect{
         case (AttackerControlled(), contract) => contract.value
       }.fold(Constant(0): EVMData)(_ + _)
-      SentMoneyListener(Balance(newBalance))
+      SentMoneyListener(newBalance, state.context.implies(newBalance > 0))
     case _ => this
   }
   override def startNewTransaction(state: Execution.ExecutionState) = this
-  override def interest = truthiness(balance.value > Constant(0)) match {
-    case Truthy|Maybey => Interesting(balance)
-    case Falsey => NotInteresting
+  override def interest = balancePositive match {
+    case Never => NotInteresting
+    case Always => Interesting(s"Balance $balance is positive")
+    case Sometimes(whenYes, _) => Interesting(s"Balance $balance is positive in the following context:\n$balancePositive")
   }
 }

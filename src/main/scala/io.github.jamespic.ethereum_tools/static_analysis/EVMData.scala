@@ -26,7 +26,6 @@ sealed trait EVMData {
     case (Constant(a), Constant(b)) => Constant(a + b)
     case (Constant(a), b) if a == 0 => b
     case (a, Constant(b)) if b == 0 => a
-    case (SpentMoney(a), SpentMoney(b)) => SpentMoney(a + b)
     case (a, b) if a.hashCode < b.hashCode => AddExpr(a, b)
     case (a, b) => AddExpr(b, a)
   }
@@ -35,7 +34,6 @@ sealed trait EVMData {
     case (Constant(a), Constant(b)) => Constant(a + b)
     case (Constant(a), b) if a == 0 => b
     case (a, Constant(b)) if b == 0 => a
-    case (SpentMoney(a), SpentMoney(b)) => SpentMoney(a + b)
     case (a, b) if a.hashCode < b.hashCode => AddExpr(a, b)
     case (a, b) => AddExpr(b, a)
   }
@@ -48,7 +46,6 @@ sealed trait EVMData {
   }
   def -(that: EVMData): EVMData = (this, that) match {
     case (Constant(a), Constant(b)) => Constant(a - b)
-    case (SpentMoney(a), SpentMoney(b)) => SpentMoney(a - b)
     case (a, Constant(b)) if b == 0 => a
     case (a, b) => SubExpr(a, b)
   }
@@ -89,10 +86,11 @@ sealed trait EVMData {
   }
   def <(that: EVMData): Predicate = (this, that) match {
     case (Constant(a), Constant(b)) => bool(u(a) < u(b))
-    case (SpentMoney(a), SpentMoney(b)) => bool(a < b)
-    case (Constant(a), SpentMoney(b)) if a == 0 => bool(0 < b)
-    case (SpentMoney(a), Constant(b)) if b == 0 => bool(a < 0)
     case (a, b) => LessThan(a, b)
+  }
+  def <=(that: EVMData): Predicate = (this, that) match {
+    case (Constant(a), Constant(b)) => bool(u(a) <= u(b))
+    case (a, b) => LessOrEqual(a, b)
   }
   def slt(that: EVMData): Predicate = (this, that) match {
     case (Constant(a), Constant(b)) => bool(s(a) < s(b))
@@ -107,8 +105,9 @@ sealed trait EVMData {
   }
   def unary_! : Predicate = this match {
     case Constant(a) => bool(a == 0)
+    case Not(a: Predicate) => a
     case (a: Predicate) => Not(a)
-    case a => a === Constant(0)
+    case a => a === 0
   }
   def &(that: EVMData): EVMData = (this, that) match {
     case (Constant(a), Constant(b)) => Constant(u(a) & u(b))
@@ -198,7 +197,7 @@ case class CallData(start: Int, offset: Int, callId: Int = 0) extends AttackerCo
 }
 case object CallDataLength extends AttackerControlled with HashMemo
 case object AttackerControlledAddress extends AttackerControlled with HashMemo
-case class AttackerReturnData(start: Int, offset: Int) extends AttackerControlled with HashMemo
+case class AttackerReturnData(start: Int, offset: Int, call: Int) extends AttackerControlled with HashMemo
 object DefenderControlled {
   def unapply(data: EVMData): Boolean = data match {
     case x: DefenderControlled => true
@@ -209,6 +208,7 @@ object DefenderControlled {
     case _ => false
   }
 }
+case object GasPrice extends AttackerControlled with HashMemo
 sealed trait DefenderControlled extends EVMData
 case object DefenderControlledData extends DefenderControlled with HashMemo
 case object DefenderControlledAddress extends DefenderControlled with HashMemo
@@ -219,7 +219,7 @@ object Blocknumber extends Constant(System.getProperty("blocknumber", "4370000")
   override def toString = "BLOCKNUMBER"
 }
 case class NewContractAddress(creator: EVMData, count: Int) extends EVMData with HashMemo
-case class SpentMoney(n: Int) extends EVMData with HashMemo
+case class SpentMoney(callId: Int) extends AttackerControlled with HashMemo
 
 // Treat signed and unsigned the same, since these constraints will be solved by hand
 object BinExpr {
@@ -246,6 +246,8 @@ sealed trait Predicate extends EVMData
 case class Equals(a: EVMData, b: EVMData) extends Str(s"($a == $b)") with BinExpr with Predicate with HashMemo
 case class LessThan(a: EVMData, b: EVMData) extends Str(s"($a < $b)") with BinExpr with Predicate with HashMemo
 case class GreaterThan(a: EVMData, b: EVMData) extends Str(s"($a > $b)") with BinExpr with Predicate with HashMemo
+case class LessOrEqual(a: EVMData, b: EVMData) extends Str(s"($a <= $b)") with BinExpr with Predicate with HashMemo
+case class GreaterOrEqual(a: EVMData, b: EVMData) extends Str(s"($a >= $b)") with BinExpr with Predicate with HashMemo
 case class Not(a: Predicate) extends Str(s"!$a") with Predicate with HashMemo
 object True extends Constant(1) with Predicate {override def toString = "true"}
 object False extends Constant(0) with Predicate {override def toString = "false"}
