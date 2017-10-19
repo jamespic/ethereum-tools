@@ -20,17 +20,17 @@ case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) exte
     // in terms of clauses of existing constraints.
     def findLinearlyDependentClauses(clauses: Iterable[LinearClause[T]]) = {
       def findRec(clauses: List[LinearClause[T]],
-                  gaussianState: GaussianEliminationState[T]): List[LinearCombination[T]] = {
+                  gaussianState: GaussianEliminationState[T]): Stream[LinearCombination[T]] = {
         clauses match {
           case head :: tail =>
             val newGaussianStateOption = gaussianState.add(head)
             val solutionOption = newGaussianStateOption.flatMap(_.solveFor(normClause))
             (newGaussianStateOption, solutionOption) match {
-              case (Some(_), Some(solution)) => solution :: findRec(tail, gaussianState)
-              case (Some(newState), None) => findRec(tail, gaussianState) ::: findRec(tail, newState)
+              case (Some(_), Some(solution)) => solution #:: findRec(tail, gaussianState)
+              case (Some(newState), None) => findRec(tail, gaussianState) #::: findRec(tail, newState)
               case (None, _) => findRec(tail, gaussianState)
             }
-          case Nil => Nil
+          case Nil => Stream.empty
         }
       }
       findRec(clauses.toList, GaussianEliminationState())
@@ -75,15 +75,15 @@ case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) exte
     }.reduce(_ + _)
   }
 
-  private def rangeIntersection(combinations: List[LinearCombination[T]]): Option[Range] = {
-    def rangeIntersectionRec(combinations: List[LinearCombination[T]], acc: Option[Range]): Option[Range] = {
+  private def rangeIntersection(combinations: Stream[LinearCombination[T]]): Option[Range] = {
+    def rangeIntersectionRec(combinations: Stream[LinearCombination[T]], acc: Option[Range]): Option[Range] = {
       acc match {
         case Some(range) =>
           combinations match {
-            case head :: tail =>
+            case head #:: tail =>
               val rangeForThis = rangeFromLinearCombination(head)
               rangeIntersectionRec(tail, rangeForThis intersection range)
-            case Nil => acc
+            case Stream.Empty => acc
           }
         case None => None
       }
@@ -118,7 +118,6 @@ object LinearConstraintSet {
        */
       val oneRowLinearCombination = LinearClause(clause -> Rational(1))
       def eliminate(row: Row[T]): Either[GaussianEliminationState[T], LinearCombination[T]] = {
-        println(row)
         row.clause.terms.headOption match {
           case Some((leadTerm, leadFactor)) =>
             // and check if there's already a row with this lead term
@@ -139,10 +138,11 @@ object LinearConstraintSet {
             // We've got no terms left, so we've made zero, so this row is a linear combination of the existing ones
             val decomposition = row.madeOfClauses
             val result = oneRowLinearCombination - decomposition
-            assert(result.terms.map{
-              case (clause, factor) => clause * factor
-            }.reduce (_ + _) == clause)
-            Right(oneRowLinearCombination - decomposition)
+            // This assertion is too heavy duty to turn on in use, but it's helpful in testing
+//            assert(result.terms.map{
+//              case (clause, factor) => clause * factor
+//            }.reduce (_ + _) == clause)
+            Right(result)
         }
       }
       eliminate(Row(clause, oneRowLinearCombination))
