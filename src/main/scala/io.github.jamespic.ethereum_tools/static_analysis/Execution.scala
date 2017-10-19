@@ -37,8 +37,8 @@ object Execution {
     }
     SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize))
   }
-  val recursionLimit = 1
-  val repeatAttacks = 3
+  val recursionLimit = 3
+  val repeatAttacks = 2
   sealed trait ExecutionState {
     def recursionDepth: Int
     def constraints: Set[Predicate]

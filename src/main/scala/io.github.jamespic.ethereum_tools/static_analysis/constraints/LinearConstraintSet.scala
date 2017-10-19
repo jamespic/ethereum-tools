@@ -4,6 +4,7 @@ import io.github.jamespic.ethereum_tools.static_analysis.HashMemo
 
 import scala.collection.SortedMap
 
+
 case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) extends HashMemo {
   import LinearConstraintSet._
   def normalise = LinearConstraintSet(
@@ -13,23 +14,23 @@ case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) exte
     val (normClause, normRange) = normaliseClause(clause, range)
     // As a shortcut, check if there is already a constraint for this clause. If there is, and it's incompatible,
     // we can safely return never
-    if (constraints.get(normClause).map(_ implies normRange) == Some(Never)) return Never
+    if (constraints.get(normClause).map(_ implies normRange).contains(Never)) return Never
 
     // Find all (if any) ways to express the clause of the new constraint
     // in terms of clauses of existing constraints.
     def findLinearlyDependentClauses(clauses: Iterable[LinearClause[T]]) = {
       def findRec(clauses: List[LinearClause[T]],
-                  gaussianState: GaussianEliminationState[T]): Stream[LinearCombination[T]] = {
+                  gaussianState: GaussianEliminationState[T]): List[LinearCombination[T]] = {
         clauses match {
           case head :: tail =>
             val newGaussianStateOption = gaussianState.add(head)
             val solutionOption = newGaussianStateOption.flatMap(_.solveFor(normClause))
             (newGaussianStateOption, solutionOption) match {
-              case (Some(_), Some(solution)) => Stream(solution)
-              case (Some(newState), None) => findRec(tail, newState)
+              case (Some(_), Some(solution)) => solution :: findRec(tail, gaussianState)
+              case (Some(newState), None) => findRec(tail, gaussianState) ::: findRec(tail, newState)
               case (None, _) => findRec(tail, gaussianState)
             }
-          case Nil => Stream.empty
+          case Nil => Nil
         }
       }
       findRec(clauses.toList, GaussianEliminationState())
@@ -57,6 +58,12 @@ case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) exte
     }
   }
 
+  override def toString = (for ((clause, range) <- constraints) yield {
+    range.toString(
+      (for ((v, factor) <- clause.terms) yield if (factor != Rational(1) ) s"$factor * $v" else s"$v").mkString(" + ")
+    )
+  }).mkString("\n", "\n", "\n")
+
   private def normaliseClause(clause: LinearClause[T], range: Range) = {
     val leadTerm = clause.terms.head._2
     clause / leadTerm -> range / leadTerm
@@ -68,13 +75,13 @@ case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) exte
     }.reduce(_ + _)
   }
 
-  private def rangeIntersection(combinations: Stream[LinearCombination[T]]): Option[Range] = {
-    def rangeIntersectionRec(combinations: Stream[LinearCombination[T]], acc: Option[Range]): Option[Range] = {
+  private def rangeIntersection(combinations: List[LinearCombination[T]]): Option[Range] = {
+    def rangeIntersectionRec(combinations: List[LinearCombination[T]], acc: Option[Range]): Option[Range] = {
       acc match {
         case Some(range) =>
           combinations match {
-            case head #:: tail => rangeIntersectionRec(tail, rangeFromLinearCombination(head) intersection range)
-            case Stream.Empty => Some(range)
+            case head :: tail => rangeIntersectionRec(tail, rangeFromLinearCombination(head) intersection range)
+            case Nil => Some(range)
           }
         case None => None
       }
@@ -88,6 +95,8 @@ case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) exte
 }
 
 object LinearConstraintSet {
+  def apply[T](constraints: (LinearClause[T], Range)*): LinearConstraintSet[T] = apply(constraints.toMap)
+
   private[constraints] type LinearCombination[T] = LinearClause[(LinearClause[T])]
   private[constraints] case class GaussianEliminationState[T](
       leadTermToRowMap: SortedMap[T, Row[T]] = SortedMap.empty[T, Row[T]](ArbitraryOrdering[T])) {
@@ -113,7 +122,8 @@ object LinearConstraintSet {
             leadTermToRowMap.get(leadTerm) match {
               case Some(existingRow) =>
                 // There's already a row with this lead term, so we reduce by it, and try to insert the reduced row
-                eliminate(row - existingRow * leadFactor)
+                val nextRow = row - existingRow * leadFactor
+                eliminate(nextRow)
               case None =>
                 // We don't have a row with this lead term, fo we add it
                 Left(
@@ -125,7 +135,10 @@ object LinearConstraintSet {
           case None =>
             // We've got no terms left, so we've made zero, so this row is a linear combination of the existing ones
             val decomposition = row.madeOfClauses
-            assert(decomposition.terms(clause) == Rational(1)) // Original clause should appear in decomposition exactly once
+            val result = oneRowLinearCombination - decomposition
+            assert(result.terms.map{
+              case (clause, factor) => clause * factor
+            }.reduce (_ + _) == clause)
             Right(oneRowLinearCombination - decomposition)
         }
       }

@@ -2,7 +2,7 @@ package io.github.jamespic.ethereum_tools.static_analysis.constraints
 
 object ArbitraryOrdering {
   private implicit class IntOr(val x: Int) extends AnyVal {
-    def ||(y: => Int) = if (x != y) x else y
+    def ||(y: => Int) = if (x != 0) x else y
   }
   def apply[T] = new ArbitraryOrdering[T]
 }

@@ -25,15 +25,3 @@ class GaussianEliminationSpec extends FreeSpec with Matchers {
   }
 }
 
-object V {
-  implicit def clause(x: V): LinearClause[V] = LinearClause(x -> Rational(1))
-}
-sealed trait V {
-  def *(i: Rational): LinearClause[V] = LinearClause(this -> i)
-  def +(clause: LinearClause[V]): LinearClause[V] = V.clause(this) + clause
-  def -(clause: LinearClause[V]): LinearClause[V] = V.clause(this) - clause
-}
-case object X extends V
-case object Y extends V
-case object Z extends V
-
