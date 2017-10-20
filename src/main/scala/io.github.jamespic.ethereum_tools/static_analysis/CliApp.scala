@@ -1,12 +1,11 @@
 package io.github.jamespic.ethereum_tools.static_analysis
 
 import scala.io.Source
-
 import javax.xml.bind.DatatypeConverter.parseHexBinary
 
 import io.github.jamespic.ethereum_tools.static_analysis.Execution.Contract
 import io.github.jamespic.ethereum_tools.static_analysis.StaticAnalysis.analyseContract
-import io.github.jamespic.ethereum_tools.static_analysis.listeners.SentMoneyListener
+import io.github.jamespic.ethereum_tools.static_analysis.listeners.{HistoryListener, MultiListener, ReallySpecificListener, SentMoneyListener}
 
 object CliApp extends App {
   val contractCode = this.args match {
@@ -26,7 +25,8 @@ object CliApp extends App {
   val simpleContract = Contract(Memory(contractCode), Map.empty, Constant(1000000))
   val address = BigInt(1000000)
   val contracts = Map[EVMData, Contract](Constant(address) -> simpleContract)
-  for ((interest, state) <- analyseContract(address, contracts, SentMoneyListener())) {
+  val listener = SentMoneyListener()
+  for ((interest, state) <- analyseContract(address, contracts, listener)) {
     println(s"Interest: $interest, When:\n${state.context}")
   }
 }

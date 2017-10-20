@@ -9,11 +9,11 @@ import io.github.jamespic.ethereum_tools.static_analysis.constraints._
 case class SentMoneyListener(balance: EVMData = Constant(0),
                              balancePositive: When[Execution.Context] = Never) extends StateListener[String] {
   override def apply(state: Execution.ExecutionState) = state match {
-    case FinishedState(_, true, _, contracts) =>
+    case FinishedState(context, true, _, contracts) =>
       val newBalance = contracts.collect{
         case (AttackerControlled(), contract) => contract.value
       }.fold(Constant(0): EVMData)(_ + _)
-      SentMoneyListener(newBalance, state.context.implies(newBalance > 0))
+      SentMoneyListener(newBalance, context.implies(newBalance > 0))
     case _ => this
   }
   override def startNewTransaction(state: Execution.ExecutionState) = this

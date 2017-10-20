@@ -34,7 +34,9 @@ object Execution {
     }
     SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize, callId))
   }
-  val maxCalls = 5
+
+  // FIXME: The max calls logic is broken
+  val maxCalls = 6
 
   case class Context(constraints: EVMConstraints = EVMConstraints(),
                      callCount: Int = 0) {
@@ -59,9 +61,7 @@ object Execution {
          |Call Count: $callCount
       |""".stripMargin
   }
-  sealed trait ExecutionState {
-    def context: Context
-  }
+  sealed trait ExecutionState
   sealed trait NonFinalExecutionState extends ExecutionState {
     def nextStates: Seq[ExecutionState]
   }
@@ -73,30 +73,28 @@ object Execution {
                                returnLoc: EVMData = 0, returnSize: EVMData = 0,
                                context: Context = Context()) extends NonFinalExecutionState with HashMemo {
     def nextStates: Seq[ExecutionState] = {
-      if (context.callCount >= maxCalls) Nil
-      else calledState match {
-        case x: NonFinalExecutionState => for (nextState <- x.nextStates) yield copy(calledState = nextState)
-        case FinishedState(context, success, result, contracts) =>
-          if (success) {
+      calledState match {
+        case x: NonFinalExecutionState if context.callCount < maxCalls =>
+          for (nextState <- x.nextStates) yield copy(calledState = nextState)
+        case FinishedState(context, true, result, contracts) =>
             returnState.copy(
               stack = True :: returnState.stack,
               memory = returnState.memory.putRange(returnLoc, returnSize, result),
               context = context,
               contracts = contracts
             ) :: Nil
-          } else {
-            returnState.copy(
-              stack = False :: returnState.stack,
-              context = context
-            ) :: Nil
-          }
+        case _ =>
+          returnState.copy(
+            stack = False :: returnState.stack,
+            context = context
+          ) :: Nil
 
       }
     }
   }
 
   def attackState(targettedContract: EVMData, contracts: Map[EVMData, Contract],
-                   returnDataSize: EVMData, context: Context = Context()) = {
+                   returnDataSize: EVMData, context: Context = Context(), maxCalls: Int = maxCalls) = {
     val contract = contracts(targettedContract)
     val victim = contracts(targettedContract)
     val attackerContract = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
@@ -118,15 +116,18 @@ object Execution {
         callValue = callValue
       ),
       returnDataSize = returnDataSize,
-      context = newContext
+      context = newContext,
+      maxCalls = maxCalls
     )
   }
   case class AttackerContractState(calledState: ExecutionState,
                                    returnDataSize: EVMData,
                                    targettedContract: EVMData,
-                                   context: Context) extends NonFinalExecutionState with HashMemo {
+                                   context: Context,
+                                   maxCalls: Int = maxCalls) extends NonFinalExecutionState with HashMemo {
     def nextStates: Seq[ExecutionState] = calledState match {
-      case x: NonFinalExecutionState => for (nextState <- x.nextStates) yield copy(calledState = nextState)
+      case x: NonFinalExecutionState =>
+        for (nextState <- x.nextStates) yield copy(calledState = nextState)
       case x @ FinishedState(_, false, _, _) => Nil // If it got rolled back, we didn't do anything useful
       case x @ FinishedState(context, true, _, contracts) =>
         val returnValue = x.copy(result = attackerContractReturnData(returnDataSize, context.callCount))
@@ -488,23 +489,25 @@ object Execution {
               val enoughMoney = context.implies(value <= contracts(address).value)
               val enoughMoneyContexts = enoughMoney match {
                 case Always => Set(context)
-                case Sometimes(whenYes, whenNo) => whenYes
+                case Sometimes(whenYes, _) => whenYes
                 case Never => Set.empty
               }
               val callData = Memory(memory.getRange(dataOffset, dataLength))
               def contractCalls(context: Context): Seq[ExecutionState] = to match {
                 case AttackerControlled() =>
                   Seq(
-                    FinishedState(
-                      context = context,
-                      success = true,
-                      result = attackerContractReturnData(returnLength, context.callCount),
-                      contracts = newContracts),
                     attackState(
                       contracts = newContracts,
                       targettedContract = address,
                       context = context,
-                      returnDataSize = returnLength
+                      returnDataSize = returnLength,
+                      maxCalls = 0
+                    ),
+                    FinishedState(
+                      context = context,
+                      success = true,
+                      result = attackerContractReturnData(returnLength, context.callCount),
+                      contracts = newContracts
                     )
                   )
                 case to if contracts contains to =>
@@ -588,7 +591,8 @@ object Execution {
                   ).incrementIP,
                   calledState = calledState,
                   returnLoc = returnOffset,
-                  returnSize = returnLength
+                  returnSize = returnLength,
+                  context = context
                 )
               }) :+ this.copy(stack = False :: stack).incrementIP
             case _ => fail
@@ -637,7 +641,8 @@ object Execution {
                   ).incrementIP,
                   calledState = calledState,
                   returnLoc = returnOffset,
-                  returnSize = returnLength
+                  returnSize = returnLength,
+                  context = context
                 )
               }) :+ this.copy(stack = False :: stack).incrementIP
             case _ => fail

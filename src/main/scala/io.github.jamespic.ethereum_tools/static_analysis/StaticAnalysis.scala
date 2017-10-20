@@ -9,7 +9,7 @@ object StaticAnalysis {
   case class Interesting[+T](result: T) extends Interest[T] with HashMemo
   case class Weird[+T](message: String) extends Interest[Nothing] with HashMemo
   case object NotInteresting extends Interest[Nothing] with HashMemo
-  trait StateListener[T] {
+  trait StateListener[+T] {
     def apply(state: ExecutionState): StateListener[T]
     def startNewTransaction(state: ExecutionState): StateListener[T]
     def interest: Interest[T]
@@ -40,7 +40,7 @@ object StaticAnalysis {
                 s"""New interesting thing
                    |=====================
                    |${nextListener.interest}""".stripMargin)
-              println(nextState.context)
+              println(getContext(nextState))
             }
             (nextListener, nextState)
           }
@@ -48,5 +48,12 @@ object StaticAnalysis {
       }
     }
     finishedStates
+  }
+
+  def getContext(state: ExecutionState): Execution.Context = state match {
+    case FinishedState(context, _, _, _) => context
+    case AttackerContractState(calledState, _, _, _, _) => getContext(calledState)
+    case ContractCallState(_, calledState, _, _, _) => getContext(calledState)
+    case x: RunningState => x.context
   }
 }
