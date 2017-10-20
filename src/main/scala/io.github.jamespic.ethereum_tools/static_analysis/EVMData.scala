@@ -195,7 +195,7 @@ case class CallData(start: Int, offset: Int, callId: Int = 0) extends AttackerCo
     case a => s"CallData_${a}($start, $offset)"
   }
 }
-case object CallDataLength extends AttackerControlled with HashMemo
+case class CallDataLength(callId: Int) extends AttackerControlled with HashMemo
 case object AttackerControlledAddress extends AttackerControlled with HashMemo
 case class AttackerReturnData(start: Int, offset: Int, call: Int) extends AttackerControlled with HashMemo
 object DefenderControlled {

@@ -34,12 +34,12 @@ object Execution {
     }
     SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize, callId))
   }
-  val maxCalls = 10
+  val maxCalls = 5
 
   case class Context(constraints: EVMConstraints = EVMConstraints(),
                      callCount: Int = 0) {
     def incrementCalls = copy(callCount = callCount + 1)
-    def addSpentMoneyConstraint(m: SpentMoney) = {
+    def addNonNegativityConstraint(m: AttackerControlled) = {
       val rawConstraints = constraints.linearConstraints.constraints  +
         (LinearClause((m: AttackerControlled) -> Rational(1)) -> Range(ClosedBound(0), NoBound))
 
@@ -68,7 +68,6 @@ object Execution {
   case class FinishedState(context: Context, success: Boolean,
                            result: SortedMap[MemRange, EVMData],
                            contracts: Map[EVMData, Contract]) extends ExecutionState with HashMemo {
-    def recursionDepth = 0
   }
   case class ContractCallState(returnState: RunningState, calledState: ExecutionState,
                                returnLoc: EVMData = 0, returnSize: EVMData = 0,
@@ -105,7 +104,8 @@ object Execution {
     val newContracts = contracts +
       (targettedContract -> victim.copy(value = victim.value + callValue)) +
       (AttackerControlledAddress -> attackerContract.copy(value = attackerContract.value - callValue))
-    val newContext = context.incrementCalls.addSpentMoneyConstraint(callValue)
+    val callDataLength = CallDataLength(context.callCount)
+    val newContext = context.incrementCalls.addNonNegativityConstraint(callValue).addNonNegativityConstraint(callDataLength)
     AttackerContractState(
       targettedContract = targettedContract,
       calledState = RunningState(
@@ -114,6 +114,7 @@ object Execution {
         code = contract.code,
         context = newContext,
         callData = defaultCallData(context.callCount),
+        callDataLength = callDataLength,
         callValue = callValue
       ),
       returnDataSize = returnDataSize,
@@ -147,7 +148,7 @@ object Execution {
                           stack: List[EVMData] = Nil, memory: Memory = Memory(),
                           sender: EVMData = AttackerControlledAddress,
                           callValue: EVMData = Constant(0), context: Context = Context(),
-                          callData: Memory = defaultCallData(), callDataLength: EVMData = CallDataLength
+                          callData: Memory = defaultCallData(), callDataLength: EVMData = CallDataLength(0)
                      ) extends NonFinalExecutionState with HashMemo {
     lazy val contract = contracts(address)
     private def simpleInstruction(modifier: PartialFunction[List[EVMData], List[EVMData]])  = {
@@ -161,8 +162,6 @@ object Execution {
     private def incrementIP = copy(instructionPointer = instructionPointer + 1)
     private def fail = FinishedState(context, false, SortedMap.empty, contracts) :: Nil
     def nextInst = decode(code.binary, instructionPointer)
-
-    def recursionDepth = 0
 
     def nextStates: Seq[ExecutionState] = {
       val inst = decode(code.binary, instructionPointer)
@@ -517,6 +516,7 @@ object Execution {
                     sender = address,
                     callValue = value,
                     callData = callData,
+                    callDataLength = dataLength,
                     context = context
                   ))
                 case Constant(n) if PrecompiledContracts.Contracts contains n.toInt =>
@@ -570,6 +570,7 @@ object Execution {
                     sender = address,
                     callValue = value,
                     callData = callData,
+                    callDataLength = dataLength,
                     context = context
                   ))
                 case Constant(n) if PrecompiledContracts.Contracts contains n.toInt =>
@@ -618,6 +619,7 @@ object Execution {
                     sender = sender,
                     callValue = callValue,
                     callData = callData,
+                    callDataLength = dataLength,
                     context = context
                   ))
                 case Constant(n) if PrecompiledContracts.Contracts contains n.toInt =>
