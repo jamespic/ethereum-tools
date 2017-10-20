@@ -11,7 +11,7 @@ class GaussianEliminationSpec extends FreeSpec with Matchers {
       val Right(combo) = state2.gaussianElimination(Y + Z)
       val expected1 = LinearClause(
         (X * 2 - Z * 2) -> Rational(-1, 2),
-        (X + Y) -> Rational(1))
+        (X + Y) -> Rational.One)
       combo should equal(expected1)
       val Left(state3) = state2.gaussianElimination(Y)
       val Right(combo2) = state3.gaussianElimination(X + Y + Z)

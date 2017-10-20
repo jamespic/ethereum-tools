@@ -35,7 +35,6 @@ object Execution {
     SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize, callId))
   }
 
-  // FIXME: The max calls logic is broken
   val maxCalls = 6
 
   case class Context(constraints: EVMConstraints = EVMConstraints(),
@@ -43,7 +42,7 @@ object Execution {
     def incrementCalls = copy(callCount = callCount + 1)
     def addNonNegativityConstraint(m: AttackerControlled) = {
       val rawConstraints = constraints.linearConstraints.constraints  +
-        (LinearClause((m: AttackerControlled) -> Rational(1)) -> Range(ClosedBound(0), NoBound))
+        (LinearClause((m: AttackerControlled) -> Rational.One) -> Range(ClosedBound(0), NoBound))
 
       copy(constraints = constraints.copy(linearConstraints = LinearConstraintSet(rawConstraints)))
     }

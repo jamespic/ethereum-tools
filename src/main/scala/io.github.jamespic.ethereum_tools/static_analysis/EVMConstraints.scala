@@ -67,7 +67,7 @@ case class EVMConstraints(linearConstraints: LinearConstraintSet[AttackerControl
       case DivExpr(LinearClausePlusConstant(clause, const), Constant(n)) =>
         Some((clause / n, const / n))
       case Constant(n) => Some(LinearClause[AttackerControlled](), n)
-      case x: AttackerControlled => Some(LinearClause[AttackerControlled](x -> Rational(1)), 0)
+      case x: AttackerControlled => Some(LinearClause[AttackerControlled](x -> Rational.One), 0)
       case _ => None
     }
   }

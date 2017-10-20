@@ -3,14 +3,21 @@ package io.github.jamespic.ethereum_tools.static_analysis.constraints
 import io.github.jamespic.ethereum_tools.static_analysis.HashMemo
 
 import scala.collection.SortedMap
-import scala.collection.mutable.{Map => MMap}
 
 object LinearClause {
   def apply[T](terms: Iterable[(T, Rational)]): LinearClause[T] = {
-    val sums = MMap.empty[T, Rational].withDefaultValue(Rational(0))
-    for ((term, factor) <- terms) sums(term) += factor
-    val zeroesFiltered = sums.toList.filter{case (k, Rational(n, d)) => n != BigInt(0)}
-    LinearClause(SortedMap(zeroesFiltered: _*)(ArbitraryOrdering[T]))
+    var result = SortedMap.empty[T, Rational](ArbitraryOrdering[T])
+    for ((term, factor) <- terms) {
+      assert(factor.num != 0)
+      result.get(term) match {
+        case Some(x) =>
+          val newValue = x + factor
+          if (newValue.num == 0) result -= term
+          else result += term -> newValue
+        case None => result += term -> factor
+      }
+    }
+    LinearClause(result)
   }
   def apply[T](terms: (T, Rational)*): LinearClause[T] = apply(terms)
 }

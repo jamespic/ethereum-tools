@@ -28,7 +28,7 @@ object LinearConstraintSet {
        * It takes a linear clause, and either produces a new upper echelon linear combination that includes it,
        * or produces a linear combination of existing rows that adds up to it.
        */
-      val oneRowLinearCombination = LinearClause(clause -> Rational(1))
+      val oneRowLinearCombination = LinearClause(clause -> Rational.One)
       def eliminate(row: Row[T]): Either[GaussianEliminationState[T], LinearCombination[T]] = {
         row.clause.terms.headOption match {
           case Some((leadTerm, leadFactor)) =>
@@ -126,7 +126,7 @@ case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) exte
 
   override def toString = (for ((clause, range) <- constraints) yield {
     range.toString(
-      (for ((v, factor) <- clause.terms) yield if (factor != Rational(1) ) s"$factor * $v" else s"$v").mkString(" + ")
+      (for ((v, factor) <- clause.terms) yield if (factor != Rational.One ) s"$factor * $v" else s"$v").mkString(" + ")
     )
   }).mkString("\n", "\n", "\n")
 

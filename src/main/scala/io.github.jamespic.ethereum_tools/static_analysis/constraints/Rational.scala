@@ -3,7 +3,8 @@ package io.github.jamespic.ethereum_tools.static_analysis.constraints
 object Rational extends Fractional[Rational] {
   def apply(num: BigInt, denom: BigInt) = {
     val gcd = num.gcd(denom) * (if (denom < 0) -1 else 1)
-    new Rational(num / gcd, denom / gcd)
+    if (gcd != 1) new Rational(num / gcd, denom / gcd)
+    else new Rational(num, denom)
   }
   implicit def apply(num: Int): Rational = Rational(num, 1)
   implicit def apply(num: BigInt): Rational = Rational(num, 1)
@@ -22,6 +23,8 @@ object Rational extends Fractional[Rational] {
   override def toFloat(x: Rational): Float = x.toFloat
   override def toDouble(x: Rational): Double = x.toDouble
   override def compare(x: Rational, y: Rational): Int = x compare y
+  val Zero = Rational(0)
+  val One = Rational(1)
 }
 
 class Rational private (val num: BigInt, val denom: BigInt) extends Ordered[Rational] {

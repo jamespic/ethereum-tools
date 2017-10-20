@@ -12,15 +12,15 @@ case class ReallySpecificListener(interested: Boolean = false) extends StateList
   override def apply(state: Execution.ExecutionState): StateListener[Boolean] = {
     val c = getContext(state).constraints.linearConstraints.constraints
     if (
-      (c.get(LinearClause[AttackerControlled](CallData(0, 4, 2) -> Rational(1))) contains equalsSig)
-      && (c.get(LinearClause[AttackerControlled](CallData(0, 4, 4) -> Rational(1))) contains equalsSig)
+      (c.get(LinearClause[AttackerControlled](CallData(0, 4, 2) -> Rational.One)) contains equalsSig)
+      && (c.get(LinearClause[AttackerControlled](CallData(0, 4, 4) -> Rational.One)) contains equalsSig)
       && (c.get(LinearClause[AttackerControlled](
         CallData(4, 32, 2) -> Rational(-1),
-        SpentMoney(0) -> Rational(1)
+        SpentMoney(0) -> Rational.One
       )) exists (_ != Range(NoBound, ClosedBound(0))))
       && (c.get(LinearClause[AttackerControlled](
         CallData(4, 32, 4) -> Rational(-1),
-        SpentMoney(0) -> Rational(1)
+        SpentMoney(0) -> Rational.One
       )) exists (_ != Range(NoBound, ClosedBound(0))))
       && (
         state match {

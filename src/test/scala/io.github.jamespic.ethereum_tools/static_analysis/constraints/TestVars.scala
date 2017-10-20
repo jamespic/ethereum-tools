@@ -7,7 +7,7 @@ sealed trait V {
   def *(i: Rational): LinearClause[V] = LinearClause(this -> i)
   def +(clause: LinearClause[V]): LinearClause[V] = V.clause(this) + clause
   def -(clause: LinearClause[V]): LinearClause[V] = V.clause(this) - clause
-  def ! : LinearClause[V] = LinearClause(this -> Rational(1))
+  def ! : LinearClause[V] = LinearClause(this -> Rational.One)
 }
 case object X extends V
 case object Y extends V

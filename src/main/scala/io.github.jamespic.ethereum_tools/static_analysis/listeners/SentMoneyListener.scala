@@ -20,6 +20,7 @@ case class SentMoneyListener(balance: EVMData = Constant(0),
   override def interest = balancePositive match {
     case Never => NotInteresting
     case Always => Interesting(s"Balance $balance is positive")
-    case Sometimes(whenYes, _) => Interesting(s"Balance $balance is positive in the following context:\n$balancePositive")
+    case Sometimes(whenYes, _) =>
+      Interesting(s"Balance $balance is positive in the following contexts:\n${whenYes.mkString("\n\n\n~~~~~~~~~~\n\n")}")
   }
 }
