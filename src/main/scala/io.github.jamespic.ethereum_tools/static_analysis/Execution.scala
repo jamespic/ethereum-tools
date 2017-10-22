@@ -41,10 +41,9 @@ object Execution {
                      callCount: Int = 0) {
     def incrementCalls = copy(callCount = callCount + 1)
     def addNonNegativityConstraint(m: AttackerControlled) = {
-      val rawConstraints = constraints.linearConstraints.constraints  +
-        (LinearClause((m: AttackerControlled) -> Rational.One) -> Range(ClosedBound(0), NoBound))
-
-      copy(constraints = constraints.copy(linearConstraints = LinearConstraintSet(rawConstraints)))
+      copy(constraints =
+        constraints.copy(linearConstraints = constraints.linearConstraints.addNonNegativityConstraint(m))
+      )
     }
     def implies(predicate: EVMData) = constraints.implies(predicate).map(x => copy(constraints = x))
     override def toString =

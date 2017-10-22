@@ -2,6 +2,10 @@ package io.github.jamespic.ethereum_tools.static_analysis.constraints
 
 import io.github.jamespic.ethereum_tools.static_analysis.HashMemo
 
+object Range {
+  val Everything = Range(NoBound, NoBound)
+}
+
 case class Range(lowerBound: Bound, upperBound: Bound) extends HashMemo {
   assert(rangeSane)
   def *(y: Rational) = {

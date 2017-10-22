@@ -14,7 +14,8 @@ object EVMConstraints extends Ander[EVMConstraints] {
   implicit def ander = this
 }
 
-case class EVMConstraints(linearConstraints: LinearConstraintSet[AttackerControlled] = LinearConstraintSet(),
+case class EVMConstraints(linearConstraints: BlockDiagonalConstraintSet[AttackerControlled]
+                          = BlockDiagonalConstraintSet[AttackerControlled](),
                           otherConstraints: Set[Predicate] = Set.empty) extends HashMemo {
   def implies(predicate: EVMData): When[EVMConstraints] = predicate match {
     case Constant(n) => if (n == 0) Never else Always
@@ -32,6 +33,7 @@ case class EVMConstraints(linearConstraints: LinearConstraintSet[AttackerControl
     case AndExpr(a: Predicate, b: Predicate) => implies(a) & implies(b)
     case OrExpr(a: Predicate, b: Predicate) => implies(a) | implies(b)
     case LinearNonEquality(clause, constant) =>
+      // FIXME: You should get a performance boost from replacing this with a single solver
       linearConstraints.implies(clause, Range(NoBound, OpenBound(constant))).map {
          newConstraint => copy(linearConstraints = newConstraint)
       } | linearConstraints.implies(clause, Range(OpenBound(constant), NoBound)).map {

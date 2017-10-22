@@ -71,9 +71,6 @@ object LinearConstraintSet {
 
 case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) extends HashMemo {
   import LinearConstraintSet._
-  def normalise = LinearConstraintSet(
-    for ((clause, range) <- constraints) yield normaliseClause(clause, range)
-  )
   def implies(clause: LinearClause[T], range: Range): When[LinearConstraintSet[T]] = {
     if (clause.terms.isEmpty) {
       return Range(ClosedBound(0), ClosedBound(0)) implies range match {
@@ -154,7 +151,7 @@ case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) exte
         case None => None
       }
     }
-    rangeIntersectionRec(combinations, Some(Range(NoBound, NoBound)))
+    rangeIntersectionRec(combinations, Some(Range.Everything))
   }
 
   def &(that: LinearConstraintSet[T]): Option[LinearConstraintSet[T]] = {
