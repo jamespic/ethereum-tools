@@ -70,16 +70,17 @@ object LinearConstraintSet {
 }
 
 case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) extends HashMemo {
+  import LinearClause.normalise
   import LinearConstraintSet._
   def implies(clause: LinearClause[T], range: Range): When[LinearConstraintSet[T]] = {
     if (clause.terms.isEmpty) {
-      return Range(ClosedBound(0), ClosedBound(0)) implies range match {
+      return Range.singlePoint(0) implies range match {
         case Always => Always
         case Never => Never
         case _ => throw new AssertionError(s"Couldn't decide if ${range.toString(0)}")
       }
     }
-    val (normClause, normRange) = normaliseClause(clause, range)
+    val (normClause, normRange) = normalise(clause, range)
     // As a shortcut, check if there is already a constraint for this clause. If there is, and it's incompatible,
     // we can safely return never
     if (constraints.get(normClause).map(_ implies normRange).contains(Never)) return Never
@@ -122,15 +123,8 @@ case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) exte
   }
 
   override def toString = (for ((clause, range) <- constraints) yield {
-    range.toString(
-      (for ((v, factor) <- clause.terms) yield if (factor != Rational.One ) s"$factor * $v" else s"$v").mkString(" + ")
-    )
+    range.toString(clause)
   }).mkString("\n", "\n", "\n")
-
-  private def normaliseClause(clause: LinearClause[T], range: Range) = {
-    val leadTerm = clause.terms.head._2
-    clause / leadTerm -> range / leadTerm
-  }
 
   private def rangeFromLinearCombination(combination: LinearCombination[T]): Range = {
     combination.terms.map{

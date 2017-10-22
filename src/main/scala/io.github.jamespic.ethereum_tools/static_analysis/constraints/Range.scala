@@ -4,6 +4,7 @@ import io.github.jamespic.ethereum_tools.static_analysis.HashMemo
 
 object Range {
   val Everything = Range(NoBound, NoBound)
+  def singlePoint(x: Rational) = Range(ClosedBound(x), ClosedBound(x))
 }
 
 case class Range(lowerBound: Bound, upperBound: Bound) extends HashMemo {

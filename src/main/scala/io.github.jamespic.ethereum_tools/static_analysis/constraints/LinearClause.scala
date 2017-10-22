@@ -20,6 +20,21 @@ object LinearClause {
     LinearClause(result)
   }
   def apply[T](terms: (T, Rational)*): LinearClause[T] = apply(terms)
+
+  private[constraints] def normalise[T](clause: LinearClause[T], range: Range): (LinearClause[T], Range) = {
+    val leadTerm = clause.terms.head._2
+    clause / leadTerm -> range / leadTerm
+  }
+
+  private[constraints] def normalise[T](clause: LinearClause[T], value: Rational): (LinearClause[T], Rational) = {
+    val leadTerm = clause.terms.head._2
+    clause / leadTerm -> value / leadTerm
+  }
+
+  private[constraints] def normalise[T](clause: LinearClause[T]): LinearClause[T] = {
+    val leadTerm = clause.terms.head._2
+    clause / leadTerm
+  }
 }
 
 case class LinearClause[T](terms: SortedMap[T, Rational]) extends HashMemo {
@@ -28,6 +43,10 @@ case class LinearClause[T](terms: SortedMap[T, Rational]) extends HashMemo {
   def +(that: LinearClause[T]) = LinearClause(this.terms.toList ++ that.terms.toList)
   def -(that: LinearClause[T]) = this + (-that)
   def unary_- = LinearClause(terms.mapValues(-_))
+
+  override def toString = (for ((v, factor) <- terms) yield {
+    if (factor != Rational.One ) s"$factor * $v" else s"$v"
+  }).mkString(" + ")
 }
 
 

@@ -11,13 +11,14 @@ object BlockDiagonalConstraintSet {
 case class BlockDiagonalConstraintSet[T](blocks: Map[T, LinearConstraintSet[T]]
                                          = Map.empty[T, LinearConstraintSet[T]]) extends HashMemo {
   def implies(clause: LinearClause[T], range: Range): When[BlockDiagonalConstraintSet[T]] = {
-    val clauseKeys = clause.terms.keySet
-    val blocksOverlapped = clause.terms.keySet.flatMap(blocks.get)
+    val (normClause, normRange) = LinearClause.normalise(clause, range)
+    val clauseKeys = normClause.terms.keySet
+    val blocksOverlapped = normClause.terms.keySet.flatMap(blocks.get)
     blocksOverlapped.size match {
       case 0 =>
         // No blocks currently touch this set of vars, so we can safely create a new block
-        Range.Everything.implies(range) map {newRange =>
-          val newConstraintSet = LinearConstraintSet[T](clause -> newRange)
+        Range.Everything.implies(normRange) map { newRange =>
+          val newConstraintSet = LinearConstraintSet[T](normClause -> newRange)
           val newBlocks = blocks ++ (clauseKeys map (_ -> newConstraintSet))
           BlockDiagonalConstraintSet(newBlocks)
         }
@@ -25,7 +26,7 @@ case class BlockDiagonalConstraintSet[T](blocks: Map[T, LinearConstraintSet[T]]
         // One block overlapped - solve for it
         val block = blocksOverlapped.head
         val affectedKeys = clauseKeys ++ block.constraints.keySet.flatMap(_.terms.keySet)
-        block.implies(clause, range) map {newBlock =>
+        block.implies(normClause, normRange) map { newBlock =>
           BlockDiagonalConstraintSet(blocks ++ (affectedKeys map (_ -> newBlock)))
         }
       case _ =>
@@ -33,7 +34,7 @@ case class BlockDiagonalConstraintSet[T](blocks: Map[T, LinearConstraintSet[T]]
         val relevantConstraints = blocksOverlapped flatMap (_.constraints)
         val mergedBlock = LinearConstraintSet(relevantConstraints.toMap)
         val affectedKeys = clauseKeys ++ relevantConstraints.flatMap(_._1.terms.keySet)
-        mergedBlock.implies(clause, range) map {newBlock =>
+        mergedBlock.implies(normClause, normRange) map { newBlock =>
           BlockDiagonalConstraintSet(blocks ++ (affectedKeys map (_ -> newBlock)))
         }
     }
@@ -59,6 +60,10 @@ case class BlockDiagonalConstraintSet[T](blocks: Map[T, LinearConstraintSet[T]]
         }
       case (None, _) => None
     }
+  }
+
+  private[constraints] def getRangeForClause(clause: LinearClause[T]): Range = {
+    blocks(clause.terms.firstKey).constraints(clause)
   }
 
   override def toString = blocks.values.toSet.mkString("")

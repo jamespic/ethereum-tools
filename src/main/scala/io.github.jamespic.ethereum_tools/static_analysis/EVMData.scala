@@ -97,6 +97,7 @@ sealed trait EVMData {
     case (a, b) => LessThan(a, b)
   }
   def >(that: EVMData): Predicate = that < this
+  def >=(that: EVMData): Predicate = that <= this
   def sgt(that: EVMData): Predicate = that slt this
   def ===(that: EVMData): Predicate = (this, that) match {
     case (Constant(a), Constant(b)) => bool(u(a) == u(b))

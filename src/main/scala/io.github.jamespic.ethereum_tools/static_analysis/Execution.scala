@@ -35,7 +35,7 @@ object Execution {
     SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize, callId))
   }
 
-  val maxCalls = 6
+  val maxCalls = 8
 
   case class Context(constraints: EVMConstraints = EVMConstraints(),
                      callCount: Int = 0) {
@@ -484,7 +484,7 @@ object Execution {
               val newContracts = contracts +
                 (address -> contract.copy(value = contract.value - value)) +
                 (to -> toContract.copy(value = toContract.value + value))
-              val enoughMoney = context.implies(value <= contracts(address).value)
+              val enoughMoney = context.implies((value >= 0) & (value <= contracts(address).value))
               val enoughMoneyContexts = enoughMoney match {
                 case Always => Set(context)
                 case Sometimes(whenYes, _) => whenYes
