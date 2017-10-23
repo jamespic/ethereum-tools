@@ -262,14 +262,10 @@ object Execution {
           }
         case SHA3 =>
           simpleInstruction {
-            case Constant(a) :: Constant(b) :: tail =>
-              new ConstantKeccak256(
-                memory.getRange(a.toInt, b.toInt).values.toSeq,
-                memory.getBinary(a.toInt, b.toInt)
-              ) :: tail
             case a :: b :: tail =>
-              Keccak256(
-                memory.getRange(a, b).values.toSeq: _*
+              new Keccak256(
+                memory.getRange(a, b).values.toSeq,
+                memory.getBinary(a, b)
               ) :: tail
           }
         case ADDRESS =>
@@ -435,7 +431,7 @@ object Execution {
         case JUMPDEST => incrementIP :: Nil
         case PUSH(l, _) =>
           // Distrust value decoded from binary, because binary is incomplete. Get from code directly
-          val decodedValue = code.getSingleValueFromRange(instructionPointer + 1, l)
+          val decodedValue = code.get(instructionPointer + 1, l)
           copy(instructionPointer = instructionPointer + 1 + l, stack = decodedValue :: stack) :: Nil
         case DUP(n) =>
           simpleInstruction {

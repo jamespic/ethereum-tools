@@ -21,32 +21,38 @@ object EVMData {
 sealed trait EVMData {
   import EVMData._
   def +(that: EVMData): EVMData = (this, that) match {
-    case (Constant(a), Constant(b)) if a == 1 && b >= 100 => DefenderControlledData
-    case (Constant(a), Constant(b)) if b == 1 && a >= 100 => DefenderControlledData
-    case (Constant(a), Constant(b)) => Constant(a + b)
-    case (Constant(a), b) if a == 0 => b
-    case (a, Constant(b)) if b == 0 => a
-    case (a, b) if a.hashCode < b.hashCode => AddExpr(a, b)
-    case (a, b) => AddExpr(b, a)
+      // break out of loops at 13 -- unlikely to be a value we'd encounter otherwise
+    case (Constant(a), Constant(b)) if a == 1 && b == 13 => DefenderControlledData
+    case (Constant(a), Constant(b)) if b == 1 && a == 13 => DefenderControlledData
+    case (a, b) => a +! b
   }
   def +!(that: EVMData): EVMData = (this, that) match {
     // Unsafe form that can grow indefinitely - only for internal use
     case (Constant(a), Constant(b)) => Constant(a + b)
     case (Constant(a), b) if a == 0 => b
     case (a, Constant(b)) if b == 0 => a
+    case (AddExpr(a, Constant(b)), Constant(c)) => AddExpr(a, Constant(b + c)) // Associate constants and add
+    case (Constant(a), b) => b +! Constant(a) // commute constants to the right
+    case (a, Constant(b)) => AddExpr(a, Constant(b)) // commute constants to the right
     case (a, b) if a.hashCode < b.hashCode => AddExpr(a, b)
     case (a, b) => AddExpr(b, a)
   }
   def *(that: EVMData): EVMData = (this, that) match {
     case (Constant(a), Constant(b)) => Constant(a * b)
     case (Constant(a), b) if a == 1 => b
-    case (a, Constant(b)) if b == 1 => a
+    case (Constant(a), b) if a == 0 => Constant(0)
+    case (a, Constant(b)) => Constant(b) * a // Commute constants to the left
+    case (Constant(a), MulExpr(Constant(b), c)) => MulExpr(Constant(a * b), c) // Associate constants and multiply
+    case (Constant(a), AddExpr(b, Constant(c))) => AddExpr(Constant(a) * b, Constant(a * c)) // Distribute into add expressions with consts
+    case (Constant(a), b) => MulExpr(Constant(a), b)
     case (a, b) if a.hashCode < b.hashCode => MulExpr(a, b)
     case (a, b) => MulExpr(b, a)
   }
   def -(that: EVMData): EVMData = (this, that) match {
     case (Constant(a), Constant(b)) => Constant(a - b)
     case (a, Constant(b)) if b == 0 => a
+    case (a, Constant(b)) => a + Constant(-b)
+      // Should we turn Constant(a) - b into (-b) + Constant(a) ?? Probably not common enough to be worth it
     case (a, b) => SubExpr(a, b)
   }
   def /(that: EVMData): EVMData = (this, that) match {
@@ -263,17 +269,14 @@ sealed trait Hash extends EVMData {
   val data: Seq[EVMData]
 }
 
-case class Keccak256(data: EVMData*) extends Hash with HashMemo
-class ConstantKeccak256(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(sha3(binData)) with Hash {
+class Keccak256(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(sha3(binData)) with Hash {
   override def toString = s"Keccak256(${data.mkString(", ")})"
 }
 
-case class Sha256(data: EVMData*) extends Hash with HashMemo
-class ConstantSHA256(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(sha256(binData)) with Hash {
+class SHA256(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(sha256(binData)) with Hash {
   override def toString = s"Sha256(${data.mkString(", ")})"
 }
 
-case class Ripemd(data: EVMData*) extends Hash with HashMemo
-class ConstantRipemd(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(ripemd160(binData)) with Hash {
+class Ripemd(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(ripemd160(binData)) with Hash {
   override def toString = s"Ripemd160(${data.mkString(", ")})"
 }

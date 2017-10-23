@@ -8,30 +8,8 @@ import javax.xml.bind.DatatypeConverter.printHexBinary
 
 class MemorySpec extends FreeSpec with Matchers {
   "Memory" - {
-    "intersectingRanges" - {
-      val mem = Memory(knownRanges = SortedMap(
-        MemRange(0, 5) -> Constant(1),
-        MemRange(5, 10) -> Constant(2),
-        MemRange(10, 15) -> Constant(3),
-        MemRange(15, 20) -> Constant(4),
-        MemRange(20, 25) -> Constant(5)
-      ))
-
-      "should find ranges that cross boundaries" in {
-        mem.intersectingRanges(6, 17) shouldEqual SortedMap(
-          MemRange(5, 10) -> Constant(2),
-          MemRange(10, 15) -> Constant(3),
-          MemRange(15, 20) -> Constant(4)
-        )
-      }
-      "should find ranges at boundaries" in {
-        mem.intersectingRanges(10, 15) shouldEqual SortedMap(
-          MemRange(10, 15) -> Constant(3)
-        )
-      }
-    }
     "getRange" - {
-      val mem = Memory(knownRanges = SortedMap(
+      val mem = Memory(SortedMap(
         MemRange(0, 4) -> BinaryConstant("01234567"),
         MemRange(4, 8) -> BinaryConstant("89abcdef"),
         MemRange(8, 12) -> BinaryConstant("fedcba98")
@@ -47,6 +25,19 @@ class MemorySpec extends FreeSpec with Matchers {
         mem.getRange(5, 1) shouldEqual SortedMap(
           MemRange(0, 1) -> BinaryConstant("ab")
         )
+      }
+      "should work with different memory zones" in {
+        val mem = Memory(
+          Map[EVMData, MemoryZone](
+            AttackerControlledAddress ->
+              MemoryZone(SortedMap(
+                MemRange(0, 4) -> BinaryConstant("01234567"),
+                MemRange(4, 8) -> BinaryConstant("89abcdef"),
+                MemRange(8, 12) -> BinaryConstant("fedcba98")
+              ))
+          )
+        )
+        mem.get(AttackerControlledAddress + 4, 4) shouldEqual BinaryConstant("89abcdef")
       }
     }
     "getBinary" - {
@@ -68,10 +59,10 @@ class MemorySpec extends FreeSpec with Matchers {
         MemRange(36, 44) -> BinaryConstant("0001020304050607")
       ))
       "should combine any data points in its memory range" in {
-        mem.getSingleValueFromRange(4, 32) shouldEqual (AttackerControlled * (BigInt(1) << 32) + DefenderControlledData)
+        mem.get(4, 32) shouldEqual (AttackerControlled * (BigInt(1) << 32) + DefenderControlledData)
       }
       "should crop the ends of constants" in {
-        mem.getSingleValueFromRange(39, 3) shouldEqual BinaryConstant("030405")
+        mem.get(39, 3) shouldEqual BinaryConstant("030405")
       }
     }
     "updateRange" - {
@@ -107,6 +98,30 @@ class MemorySpec extends FreeSpec with Matchers {
           MemRange(12, 16) -> BinaryConstant("eeeeeeee"),
           MemRange(16, 20) -> BinaryConstant("10111213")
         ))
+      }
+    }
+  }
+  "MemoryZone" - {
+    "intersectingRanges" - {
+      val memZone = MemoryZone(knownRanges = SortedMap(
+        MemRange(0, 5) -> Constant(1),
+        MemRange(5, 10) -> Constant(2),
+        MemRange(10, 15) -> Constant(3),
+        MemRange(15, 20) -> Constant(4),
+        MemRange(20, 25) -> Constant(5)
+      ))
+
+      "should find ranges that cross boundaries" in {
+        memZone.intersectingRanges(6, 17) shouldEqual SortedMap(
+          MemRange(5, 10) -> Constant(2),
+          MemRange(10, 15) -> Constant(3),
+          MemRange(15, 20) -> Constant(4)
+        )
+      }
+      "should find ranges at boundaries" in {
+        memZone.intersectingRanges(10, 15) shouldEqual SortedMap(
+          MemRange(10, 15) -> Constant(3)
+        )
       }
     }
   }

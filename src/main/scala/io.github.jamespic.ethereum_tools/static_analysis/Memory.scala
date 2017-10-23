@@ -20,18 +20,103 @@ case object Memory {
     Memory(
       SortedMap(
         MemRange(0, binary.length) -> memConstant
-      ),
-      Map(Constant(0) -> memConstant)
+      )
     )
   }
+
+  def apply(knownRanges: SortedMap[MemRange, EVMData] = SortedMap.empty) =
+    new Memory(Map(Constant(0) -> MemoryZone(knownRanges)))
 }
-case class Memory(knownRanges: SortedMap[MemRange, EVMData] = SortedMap.empty,
-                  knownValues: Map[EVMData, EVMData] = Map.empty) extends HashMemo {
-  private[static_analysis] def intersectingRanges(start: Int, end: Int) = {
+case class Memory(zones: Map[EVMData, MemoryZone]) extends HashMemo {
+  private def getZoneStartAndOffset(start: EVMData) = start match {
+    case Constant(n) => (Constant(0), n.toInt)
+    case AddExpr(x, Constant(o)) => (x, o.toInt)
+    case x => (x, 0)
+  }
+
+  def getRange(start: EVMData, length: EVMData): SortedMap[MemRange, EVMData] = {
+    val (zoneKey, offset) = getZoneStartAndOffset(start)
+    zones.get(zoneKey) match {
+      case Some(zone) =>
+        length match {
+          case Constant(l) => zone.getRange(offset, l.toInt)
+          case _ => zone.getRange(offset)
+        }
+      case None => SortedMap.empty
+    }
+  }
+
+  def get(start: EVMData, len: EVMData = Constant(32)) = {
+    val (zoneKey, offset) = getZoneStartAndOffset(start)
+    zones.get(zoneKey) match {
+      case Some(zone) =>
+        len match {
+          case Constant(l) => zone.get(offset, l.toInt)
+          case _ => zone.get(offset)
+        }
+      case None => Constant(0)
+    }
+  }
+
+  def put(key: EVMData, value: EVMData): Memory = {
+    val (zoneKey, offset) = getZoneStartAndOffset(key)
+    zones.get(zoneKey) match {
+      case Some(zone) =>
+        copy(zones = zones.updated(zoneKey, zone.putRange(offset, 32, SortedMap(MemRange(0, 32) -> value))))
+      case None =>
+        copy(zones = zones.updated(zoneKey, MemoryZone(SortedMap(MemRange(0, 32) -> value))))
+    }
+  }
+
+  def putRange(start: EVMData, length: EVMData, data: Iterable[(MemRange, EVMData)]): Memory = {
+    val (zoneKey, offset) = getZoneStartAndOffset(start)
+    zones.get(zoneKey) match {
+      case Some(zone) =>
+        length match {
+          case Constant(l) => copy(zones = zones.updated(zoneKey, zone.putRange(offset, l.toInt, data)))
+          case _ => copy(zones = zones.updated(zoneKey, zone.putRange(offset, data)))
+        }
+      case None =>
+        copy(zones = zones.updated(zoneKey, MemoryZone(SortedMap(data.toSeq: _*))))
+    }
+  }
+
+  def getBinary(start: EVMData, length: EVMData) = {
+    val (zoneKey, offset) = getZoneStartAndOffset(start)
+    zones.get(zoneKey) match {
+      case Some(zone) =>
+        length match {
+          case Constant(l) => zone.getBinary(offset, l.toInt)
+          case _ => zone.binary.drop(offset)
+        }
+      case None =>
+        length match {
+          case Constant(n) => new Array[Byte](n.toInt)
+          case _ => new Array[Byte](0)
+        }
+    }
+  }
+
+  lazy val binary = {
+    zones.get(0).fold(new Array[Byte](0))(_.binary)
+  }
+
+}
+
+case class MemoryZone(knownRanges: SortedMap[MemRange, EVMData] = SortedMap.empty) extends HashMemo {
+  private[static_analysis] def intersectingRanges(start: Int, end: Int): SortedMap[MemRange, EVMData] = {
     val firstRange = knownRanges.until(MemRange(start, start)).lastOption filter {
       case (MemRange(_, rangeEnd), _) => rangeEnd > start
     }
     val restRange = knownRanges.from(MemRange(start, start)).until(MemRange(end, end))
+    restRange ++ firstRange
+  }
+
+  private[static_analysis] def intersectingRanges(start: Int): SortedMap[MemRange, EVMData] = {
+    val firstRange = knownRanges.until(MemRange(start, start)).lastOption filter {
+      case (MemRange(_, rangeEnd), _) => rangeEnd > start
+    }
+    val restRange = knownRanges.from(MemRange(start, start))
     restRange ++ firstRange
   }
 
@@ -47,10 +132,50 @@ case class Memory(knownRanges: SortedMap[MemRange, EVMData] = SortedMap.empty,
     }
   }
 
-  def getRange(start: EVMData, length: EVMData): SortedMap[MemRange, EVMData] = (start, length) match {
-    case (Constant(s), Constant(l)) => getRange(s.toInt, l.toInt)
-    case (x, Constant(l)) => SortedMap((for (i <- 0 until l.toInt) yield MemRange(i, i + 32) -> get(i)): _*)
-    case _ => SortedMap()
+  def getRange(start: Int): SortedMap[MemRange, EVMData] = {
+    val range = intersectingRanges(start)
+    for ((MemRange(segStart, segEnd), x) <- range) yield {
+      val newStart = start max segStart
+      val clipped = if (segStart < start) x.clipHighBytes(segEnd - start) else x
+      MemRange(newStart - start, segEnd - start) -> clipped
+    }
+  }
+
+  def get(start: Int, length: Int): EVMData = {
+    ((Constant(0):EVMData) /: getRange(start, length)){
+      case (x, (MemRange(_, end), y)) => x +! y * (BigInt(1) << (8 * (length - end)))
+    }
+  }
+
+  def get(start: Int): EVMData = get(start, 32) // Most likely use is getting a single word
+
+
+  def putRange(start: Int, length: Int, newData: Iterable[(MemRange, EVMData)]): MemoryZone = {
+    // Check everything in range
+    assert((true /: newData){case (a, (MemRange(s, e), _)) => a && 0 <= s && s <= e && e <= length})
+    val end = start + length
+    val damagedRanges = intersectingRanges(start, end)
+    val startRangeItem = for ((MemRange(s, e), x) <- damagedRanges.headOption if s < start) yield {
+      MemRange(s, start) -> x.clipLowBytes(e - start)
+    }
+    val endRangeItem = for ((MemRange(s, e), x) <- damagedRanges.lastOption if e > end) yield {
+      MemRange(end, e) -> x.clipHighBytes(e - end)
+    }
+    val newRanges = knownRanges -- damagedRanges.keys ++ startRangeItem ++ endRangeItem ++
+      (for ((MemRange(s, e), x) <- newData) yield MemRange(s + start, e + start) -> x)
+    copy(knownRanges = newRanges)
+  }
+
+  def putRange(start: Int, newData: Iterable[(MemRange, EVMData)]): MemoryZone = {
+    // Check everything in range
+    assert((true /: newData){case (a, (MemRange(s, e), _)) => a && 0 <= s && s <= e})
+    val damagedRanges = intersectingRanges(start)
+    val startRangeItem = for ((MemRange(s, e), x) <- damagedRanges.headOption if s < start) yield {
+      MemRange(s, start) -> x.clipLowBytes(e - start)
+    }
+    val newRanges = knownRanges -- damagedRanges.keys ++ startRangeItem ++
+      (for ((MemRange(s, e), x) <- newData) yield MemRange(s + start, e + start) -> x)
+    copy(knownRanges = newRanges)
   }
 
   def getBinary(start: Int, length: Int) = {
@@ -69,46 +194,6 @@ case class Memory(knownRanges: SortedMap[MemRange, EVMData] = SortedMap.empty,
     result
   }
 
-  def getSingleValueFromRange(start: Int, length: Int) = {
-    ((Constant(0):EVMData) /: getRange(start, length)){
-      case (x, (MemRange(_, end), y)) => x +! y * (BigInt(1) << (8 * (length - end)))
-    }
-  }
-
-  def get(key: EVMData, len: EVMData = Constant(32)): EVMData = {
-    (key, len) match {
-      case (Constant(k), Constant(l)) =>
-        getSingleValueFromRange(k.toInt, l.toInt)
-      case _ => knownValues.getOrElse(key, Constant(0))
-    }
-  }
-
-  def putRange(start: Int, length: Int, newData: Iterable[(MemRange, EVMData)]): Memory = {
-    // Check everything in range
-    assert((true /: newData){case (a, (MemRange(s, e), _)) => a && 0 <= s && s <= e && e <= length})
-    val end = start + length
-    val damagedRanges = intersectingRanges(start, end)
-    val startRangeItem = for ((MemRange(s, e), x) <- damagedRanges.headOption if s < start) yield {
-      MemRange(s, start) -> x.clipLowBytes(e - start)
-    }
-    val endRangeItem = for ((MemRange(s, e), x) <- damagedRanges.lastOption if e > end) yield {
-      MemRange(end, e) -> x.clipHighBytes(e - end)
-    }
-    val newRanges = knownRanges -- damagedRanges.keys ++ startRangeItem ++ endRangeItem ++
-      (for ((MemRange(s, e), x) <- newData) yield MemRange(s + start, e + start) -> x)
-    copy(knownRanges = newRanges)
-  }
-
-  def put(key: EVMData, value: EVMData) = key match {
-    case Constant(n) => putRange(n.toInt, n.toInt + 32, SortedMap(MemRange(0, 32) -> value))
-    case _ => copy(knownValues = knownValues + (key -> value))
-  }
-
-  def putRange(start: EVMData, length: EVMData, data: Iterable[(MemRange, EVMData)]): Memory = (start, length) match {
-    case (Constant(s), Constant(l)) => putRange(s.toInt, l.toInt, data)
-    case (s, _) => copy(knownValues = knownValues ++ (for ((MemRange(o, _), value) <- data) yield (s + o) -> value))
-  }
-
   lazy val binary = {
     val length = knownRanges.lastOption match {
       case Some((MemRange(_, end), _)) => end
@@ -116,5 +201,4 @@ case class Memory(knownRanges: SortedMap[MemRange, EVMData] = SortedMap.empty,
     }
     getBinary(0, length)
   }
-
 }

@@ -35,13 +35,6 @@ object StaticAnalysis {
           visitedExecutionStates += x
           for (nextState <- x.nextStates) yield {
             val nextListener = lastListener(nextState)
-//            if (lastListener.interest == NotInteresting && nextListener.interest != NotInteresting) {
-//              println(
-//                s"""New interesting thing
-//                   |=====================
-//                   |${nextListener.interest}""".stripMargin)
-//              println(getContext(nextState))
-//            }
             (nextListener, nextState)
           }
         case _ => Nil
