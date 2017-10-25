@@ -91,8 +91,8 @@ object Execution {
     }
   }
 
-  def attackState(targettedContract: EVMData, contracts: Map[EVMData, Contract],
-                   returnDataSize: EVMData, context: Context = Context(), maxCalls: Int = maxCalls) = {
+  def attackState(targettedContract: EVMData, contracts: Map[EVMData, Contract], returnDataSize: EVMData,
+                  context: Context = Context(), maxCalls: Int = maxCalls) = {
     val contract = contracts(targettedContract)
     val victim = contracts(targettedContract)
     val attackerContract = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
@@ -115,6 +115,7 @@ object Execution {
       ),
       returnDataSize = returnDataSize,
       context = newContext,
+      startContracts = contracts,
       maxCalls = maxCalls
     )
   }
@@ -122,24 +123,28 @@ object Execution {
                                    returnDataSize: EVMData,
                                    targettedContract: EVMData,
                                    context: Context,
+                                   startContracts: Map[EVMData, Contract],
                                    maxCalls: Int = maxCalls) extends NonFinalExecutionState with HashMemo {
     def nextStates: Seq[ExecutionState] = calledState match {
       case x: NonFinalExecutionState =>
         for (nextState <- x.nextStates) yield copy(calledState = nextState)
       case x @ FinishedState(_, false, _, _) => Nil // If it got rolled back, we didn't do anything useful
       case x @ FinishedState(context, true, _, contracts) =>
-        val returnValue = x.copy(result = attackerContractReturnData(returnDataSize, context.callCount))
-        val otherActions = if (context.callCount < maxCalls) {
-          Seq(
-            attackState(
-              targettedContract = targettedContract,
-              contracts = contracts,
-              returnDataSize = returnDataSize,
-              context = context.incrementCalls
+        if (contracts == startContracts) Nil // This did nothing interesting
+        else {
+          val returnValue = x.copy(result = attackerContractReturnData(returnDataSize, context.callCount))
+          val otherActions = if (context.callCount < maxCalls) {
+            Seq(
+              attackState(
+                targettedContract = targettedContract,
+                contracts = contracts,
+                returnDataSize = returnDataSize,
+                context = context.incrementCalls
+              )
             )
-          )
-        } else Nil
-        returnValue +: otherActions
+          } else Nil
+          returnValue +: otherActions
+        }
     }
   }
   case class RunningState(address: EVMData, contracts: Map[EVMData, Contract],

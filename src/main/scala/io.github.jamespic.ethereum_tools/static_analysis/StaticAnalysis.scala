@@ -47,7 +47,7 @@ object StaticAnalysis {
 
   def getContext(state: ExecutionState): Execution.Context = state match {
     case FinishedState(context, _, _, _) => context
-    case AttackerContractState(calledState, _, _, _, _) => getContext(calledState)
+    case AttackerContractState(calledState, _, _, _, _, _) => getContext(calledState)
     case ContractCallState(_, calledState, _, _, _) => getContext(calledState)
     case x: RunningState => x.context
   }
