@@ -35,7 +35,7 @@ object Execution {
     SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize, callId))
   }
 
-  val maxCalls = 3
+  val maxCalls = 2
 
   case class Context(constraints: EVMConstraints = EVMConstraints(),
                      callCount: Int = 0) {

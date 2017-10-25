@@ -102,7 +102,7 @@ case class LinearConstraintSet[T](constraints: Map[LinearClause[T], Range]) exte
           case Nil => Stream.empty
         }
       }
-      findRec(clauses.toList, GaussianEliminationState())
+      findRec(clauses.toList, GaussianEliminationState[T]())
     }
     val waysToMakeClause = findLinearlyDependentClauses(constraints.keys)
     // We use this to further restrict the range of values

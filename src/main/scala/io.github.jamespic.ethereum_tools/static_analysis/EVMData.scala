@@ -6,7 +6,7 @@ import org.ethereum.util.BIUtil.toBI
 
 import javax.xml.bind.DatatypeConverter.parseHexBinary
 
-class Str(s: String) { override def toString = s }
+class Str(s: => String) { override def toString = s }
 object EVMData {
   private val modulus = BigInt(2).pow(256)
   private val signedUpperLimit = modulus / 2 - 1
@@ -308,8 +308,35 @@ object BinaryConstant {
   def apply(binData: Array[Byte]) = new BinaryConstant(binData)
   def apply(binData: String) = new BinaryConstant(parseHexBinary(binData))
 }
-class BinaryConstant(val binData: Array[Byte]) extends Constant(toBI(binData)) {
+class BinaryConstant(val binData: Array[Byte]) extends Constant(toBI(binData)) with MemoryLike {
   override def toString = s"BinaryConstant(<binary>)"
+
+  override def getRange(start: EVMData, length: EVMData): SortedMap[MemRange, EVMData] = {
+    val newBinData = getBinary(start, length)
+    SortedMap(MemRange(0, newBinData.length) -> BinaryConstant(newBinData))
+  }
+
+  override def slice(start: EVMData, length: EVMData): MemoryLike = BinaryConstant(getBinary(start, length))
+
+  override def get(start: EVMData, len: EVMData): EVMData = BinaryConstant(getBinary(start, len))
+
+  override def put(key: EVMData, value: EVMData): MemoryLike = promote.put(key, value)
+
+  override def putRange(start: EVMData, length: EVMData, data: Iterable[(MemRange, EVMData)]) = {
+    promote.putRange(start, length, data)
+  }
+
+  override def getBinary(start: EVMData, length: EVMData): Array[Byte] = (start, length) match {
+    case (Constant(s), Constant(l)) => binData.slice(s.toInt, l.toInt + s.toInt)
+    case (_, Constant(l)) => new Array[Byte](l.toInt)
+    case _ => new Array[Byte](0)
+  }
+
+  private def promote = {
+    Memory().putRange(0, binData.length, Iterable(MemRange(0, binData.length) -> this))
+  }
+
+  override val binary: Array[Byte] = binData
 }
 
 sealed trait Hash extends EVMData {

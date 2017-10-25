@@ -2,6 +2,8 @@ package io.github.jamespic.ethereum_tools.static_analysis
 
 import io.github.jamespic.ethereum_tools._
 
+import scala.collection.mutable.{Set => MSet}
+
 object StaticAnalysis {
   import Execution._
 
@@ -16,14 +18,14 @@ object StaticAnalysis {
   }
 
   def analyseContract[T](address: BigInt, contracts: Map[EVMData, Contract], listener: StateListener[T]): Iterable[(Interest[T], FinishedState)] = {
-    var visitedExecutionStates = Set.empty[ExecutionState]
+    val visitedExecutionStates = MSet.empty[ExecutionState]
     val startingState = attackState(address, contracts, 0)
 
     var pendingStates: Iterable[(StateListener[T], ExecutionState)] = Seq(
       (listener(startingState), startingState)
     )
 
-    var finishedStates = Set.empty[(Interest[T], FinishedState)]
+    val finishedStates = MSet.empty[(Interest[T], FinishedState)]
     while (pendingStates.nonEmpty) {
       pendingStates = pendingStates flatMap {
         case (innerListener, x @ FinishedState(_, true, _, _)) =>
