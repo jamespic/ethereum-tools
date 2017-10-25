@@ -47,7 +47,7 @@ object AnalyseParityWallet extends App {
 //  val listener = SentMoneyListener()
   val listener = MultiListener(
     Map(
-      "line" -> LineNumberListener(0x318),
+//      "line" -> LineNumberListener(0x318),
       "money" -> SentMoneyListener()
     )
   )

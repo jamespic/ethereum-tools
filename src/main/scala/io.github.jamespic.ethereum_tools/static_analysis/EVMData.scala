@@ -17,13 +17,18 @@ object EVMData {
 
   implicit def intToConstant(i: Int): EVMData = Constant(BigInt(i))
   implicit def bigIntToConstant(i: BigInt): EVMData = Constant(i)
+
+  val maxLoopSize = 3
 }
 sealed trait EVMData {
   import EVMData._
   def +(that: EVMData): EVMData = (this, that) match {
-      // break out of loops at 13 -- unlikely to be a value we'd encounter otherwise
-    case (Constant(a), Constant(b)) if a == 1 && b == 13 => DefenderControlledData
-    case (Constant(a), Constant(b)) if b == 1 && a == 13 => DefenderControlledData
+      // break out of loops early -- unlikely to be a value we'd encounter otherwise
+    case (Constant(a), Constant(b)) if a == 1 && b == maxLoopSize => DefenderControlledData
+    case (Constant(a), Constant(b)) if b == 1 && a == maxLoopSize => DefenderControlledData
+    case (Constant(_), DefenderControlledData) => DefenderControlledData
+    case (DefenderControlledData, Constant(_)) => DefenderControlledData
+    case (DefenderControlledData, DefenderControlledData) => DefenderControlledData
     case (a, b) => a +! b
   }
   def +!(that: EVMData): EVMData = (this, that) match {
