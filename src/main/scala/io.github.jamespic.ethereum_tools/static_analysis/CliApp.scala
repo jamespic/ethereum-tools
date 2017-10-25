@@ -5,7 +5,7 @@ import javax.xml.bind.DatatypeConverter.parseHexBinary
 
 import io.github.jamespic.ethereum_tools.static_analysis.Execution.Contract
 import io.github.jamespic.ethereum_tools.static_analysis.StaticAnalysis.analyseContract
-import io.github.jamespic.ethereum_tools.static_analysis.listeners.{HistoryListener, MultiListener, SentMoneyListener}
+import io.github.jamespic.ethereum_tools.static_analysis.listeners.{HistoryListener, LineNumberListener, MultiListener, SentMoneyListener}
 
 object CliApp extends App {
   val contractCode = this.args match {

@@ -169,7 +169,12 @@ sealed trait EVMData {
     this match {
       case b: BinaryConstant =>
         new BinaryConstant(b.binData.slice(startBytes, endBytes - startBytes))
-      case CallData(start, length, callId) => CallData(start + startBytes, length min (endBytes - startBytes), callId)
+      case CallData(start, length, callId) =>
+        val newLength = length match {
+          case Constant(l) => l.toInt min (endBytes - startBytes)
+          case _ => endBytes - startBytes
+        }
+        CallData(start + startBytes, newLength, callId)
       case Constant(n) => Constant((u(n) >> ((32 - endBytes) * 8)) & mask)
       case a => AndExpr(DivExpr(a, Constant(1 << ((32 - endBytes) * 8))), mask)
     }
@@ -179,7 +184,9 @@ sealed trait EVMData {
     case _ => false
   }
 }
-case class Constant(n: BigInt) extends Str("0x" + n.toString(16)) with EVMData with HashMemo
+case class Constant(n: BigInt) extends EVMData with HashMemo {
+  override def toString = "0x" + n.toString(16)
+}
 
 sealed trait AttackerControlled extends EVMData
 case object AttackerControlled extends AttackerControlled with HashMemo {
@@ -196,10 +203,48 @@ case object AttackerControlled extends AttackerControlled with HashMemo {
     case _ => false
   }
 }
-case class CallData(start: Int, offset: Int, callId: Int = 0) extends AttackerControlled with HashMemo {
+case class CallData(start: EVMData = 0, length: EVMData = CallDataLength(0), callId: Int = 0) extends AttackerControlled with HashMemo with MemoryLike {
   override def toString = callId match {
-    case 0 => s"CallData($start, $offset)"
-    case a => s"CallData_${a}($start, $offset)"
+    case 0 => s"CallData($start, $length)"
+    case a => s"CallData_${a}($start, $length)"
+  }
+
+  override def getRange(rStart: EVMData, rLength: EVMData) = {
+    val sliced = slice(rStart, rLength)
+    val rangeLength = rLength match {
+      case Constant(l) => l.toInt
+      case _ => 32 // Hope no-one looks too closely
+    }
+    SortedMap(MemRange(0, rangeLength) -> sliced)
+  }
+
+  override def slice(rStart: EVMData, rLength: EVMData) = {
+    val newLength = (rStart, rLength, length) match {
+      case (Constant(rS), Constant(rL), Constant(l)) if l < rS + rL => Constant(l)
+      case _ => rLength
+    }
+    CallData(start + rStart, newLength)
+  }
+
+  override def get(start: EVMData, len: EVMData) = slice(start, len)
+
+  override def put(key: EVMData, value: EVMData) = promote.put(key, value)
+
+  override def putRange(start: EVMData, length: EVMData, data: Iterable[(MemRange, EVMData)]) = {
+    promote.putRange(start, length, data)
+  }
+
+  override def getBinary(start: EVMData, length: EVMData): Array[Byte] = new Array[Byte](guessLength(length))
+
+  override val binary: Array[Byte] = new Array[Byte](guessLength(length))
+
+  private def promote = {
+    Memory().putRange(0, length, Iterable(MemRange(0, guessLength(length)) -> this))
+  }
+
+  def guessLength(l: EVMData) = l match {
+    case Constant(l) => l.toInt
+    case _ => 256
   }
 }
 case class CallDataLength(callId: Int) extends AttackerControlled with HashMemo
@@ -263,7 +308,9 @@ object BinaryConstant {
   def apply(binData: Array[Byte]) = new BinaryConstant(binData)
   def apply(binData: String) = new BinaryConstant(parseHexBinary(binData))
 }
-class BinaryConstant(val binData: Array[Byte]) extends Constant(toBI(binData))
+class BinaryConstant(val binData: Array[Byte]) extends Constant(toBI(binData)) {
+  override def toString = s"BinaryConstant(<binary>)"
+}
 
 sealed trait Hash extends EVMData {
   val data: Seq[EVMData]

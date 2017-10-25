@@ -20,7 +20,7 @@ object Execution {
   }
 
 
-  case class Contract(code: Memory, storage: Map[EVMData, EVMData] = Map.empty,
+  case class Contract(code: MemoryLike, storage: Map[EVMData, EVMData] = Map.empty,
                       value: EVMData = Constant(0), nonce: Int = 0) extends HashMemo
 
   def defaultCallData(callId: Int = 0) = Memory(SortedMap(MemRange(0, 4096) -> CallData(0, 4096, callId)))
@@ -35,7 +35,7 @@ object Execution {
     SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize, callId))
   }
 
-  val maxCalls = 8
+  val maxCalls = 3
 
   case class Context(constraints: EVMConstraints = EVMConstraints(),
                      callCount: Int = 0) {
@@ -101,7 +101,7 @@ object Execution {
       (targettedContract -> victim.copy(value = victim.value + callValue)) +
       (AttackerControlledAddress -> attackerContract.copy(value = attackerContract.value - callValue))
     val callDataLength = CallDataLength(context.callCount)
-    val newContext = context.incrementCalls.addNonNegativityConstraint(callValue).addNonNegativityConstraint(callDataLength)
+    val newContext = context.addNonNegativityConstraint(callValue).addNonNegativityConstraint(callDataLength)
     AttackerContractState(
       targettedContract = targettedContract,
       calledState = RunningState(
@@ -143,11 +143,11 @@ object Execution {
     }
   }
   case class RunningState(address: EVMData, contracts: Map[EVMData, Contract],
-                          code: Memory, instructionPointer: Int = 0,
-                          stack: List[EVMData] = Nil, memory: Memory = Memory(),
+                          code: MemoryLike, instructionPointer: Int = 0,
+                          stack: List[EVMData] = Nil, memory: MemoryLike = Memory(),
                           sender: EVMData = AttackerControlledAddress,
                           callValue: EVMData = Constant(0), context: Context = Context(),
-                          callData: Memory = defaultCallData(), callDataLength: EVMData = CallDataLength(0)
+                          callData: MemoryLike = defaultCallData(), callDataLength: EVMData = CallDataLength(0)
                      ) extends NonFinalExecutionState with HashMemo {
     lazy val contract = contracts(address)
     private def simpleInstruction(modifier: PartialFunction[List[EVMData], List[EVMData]])  = {
@@ -405,13 +405,18 @@ object Execution {
           }
         case JUMPI =>
           stack match {
-            case Constant(a) :: v :: tail if decode(code.binary, a.toInt) == JUMPDEST =>
+            case Constant(a) :: v :: tail  =>
+              val validDest = decode(code.binary, a.toInt) == JUMPDEST
+              def jumpState(newContext: Context) ={
+                if (validDest) copy(instructionPointer = a.toInt, stack = tail, context = newContext)
+                else FinishedState(newContext, false, SortedMap.empty, contracts)
+              }
               context.implies(v) match {
-                case Always => copy(instructionPointer = a.toInt, stack = tail) :: Nil
+                case Always => jumpState(context) :: Nil
                 case Never => copy(stack = tail).incrementIP :: Nil
                 case Sometimes(whenYes, whenNo) =>
                   (
-                    whenYes.map(context => copy(instructionPointer = a.toInt, stack = tail, context = context))
+                    whenYes.map(newContext => jumpState(newContext))
                       ++
                     whenNo.map(context => copy(stack = tail, context = context).incrementIP)
                   ).toSeq
@@ -450,7 +455,7 @@ object Execution {
             case value :: codeStart :: codeLength :: tail =>
               def newContract = {
                 val newContractAddress = NewContractAddress(address, contract.nonce)
-                val code = Memory(memory.getRange(codeStart, codeLength))
+                val code = memory.slice(codeStart, codeLength)
                 val newContract = Contract(code, value = value)
                 copy(
                   contracts = contracts + (address -> contract.copy(
@@ -486,7 +491,7 @@ object Execution {
                 case Sometimes(whenYes, _) => whenYes
                 case Never => Set.empty
               }
-              val callData = Memory(memory.getRange(dataOffset, dataLength))
+              val callData = memory.slice(dataOffset, dataLength)
               def contractCalls(context: Context): Seq[ExecutionState] = to match {
                 case AttackerControlled() =>
                   Seq(
@@ -545,7 +550,7 @@ object Execution {
           stack match {
             case gas :: to :: value :: dataOffset :: dataLength :: returnOffset :: returnLength :: tail =>
               val toContract = contracts.getOrElse(to, Contract(Memory()))
-              val callData = Memory(memory.getRange(dataOffset, dataLength))
+              val callData = memory.slice(dataOffset, dataLength)
               val contractCalls: Seq[ExecutionState] = to match {
                 case AttackerControlled() =>
                   // The defender is boned at this point
@@ -595,7 +600,7 @@ object Execution {
           stack match {
             case gas :: to :: dataOffset :: dataLength :: returnOffset :: returnLength :: tail =>
               val toContract = contracts.getOrElse(to, Contract(Memory()))
-              val callData = Memory(memory.getRange(dataOffset, dataLength))
+              val callData = memory.slice(dataOffset, dataLength)
               val contractCalls: Seq[ExecutionState] = to match {
                 case AttackerControlled() =>
                   // The defender is boned at this point
