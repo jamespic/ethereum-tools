@@ -228,7 +228,7 @@ case class CallData(start: EVMData = 0, length: EVMData = CallDataLength(0), cal
       case (Constant(rS), Constant(rL), Constant(l)) if l < rS + rL => Constant(l)
       case _ => rLength
     }
-    CallData(start + rStart, newLength)
+    CallData(start + rStart, newLength, callId)
   }
 
   override def get(start: EVMData, len: EVMData) = slice(start, len)
@@ -269,10 +269,10 @@ case object GasPrice extends AttackerControlled with HashMemo
 sealed trait DefenderControlled extends EVMData
 case object DefenderControlledData extends DefenderControlled with HashMemo
 case object DefenderControlledAddress extends DefenderControlled with HashMemo
-object Timestamp extends Constant(System.currentTimeMillis() / 1000) with DefenderControlled {
+class Timestamp(ts: Long) extends Constant(ts) with DefenderControlled {
   override def toString = "TIMESTAMP"
 }
-object Blocknumber extends Constant(System.getProperty("blocknumber", "4370000").toLong) with DefenderControlled {
+class Blocknumber(n: Long) extends Constant(n) with DefenderControlled {
   override def toString = "BLOCKNUMBER"
 }
 case class NewContractAddress(creator: EVMData, count: Int) extends EVMData with HashMemo
@@ -314,7 +314,7 @@ object BinaryConstant {
   def apply(binData: String) = new BinaryConstant(parseHexBinary(binData))
 }
 class BinaryConstant(val binData: Array[Byte]) extends Constant(toBI(binData)) with MemoryLike {
-  override def toString = s"BinaryConstant(<binary>)"
+//  override def toString = s"BinaryConstant(<binary>)"
 
   override def getRange(start: EVMData, length: EVMData): SortedMap[MemRange, EVMData] = {
     val newBinData = getBinary(start, length)

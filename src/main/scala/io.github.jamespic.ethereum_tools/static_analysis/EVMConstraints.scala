@@ -103,4 +103,6 @@ case class EVMConstraints(linearConstraints: NotEqualsConstraintWrapper[Attacker
       case _ => None
     }
   }
+
+  override def toString = linearConstraints.toString + "\n" + otherConstraints.mkString("\n")
 }

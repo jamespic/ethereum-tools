@@ -37,8 +37,15 @@ object Execution {
 
   val maxCalls = 2
 
+  def estimateBlockNumber(timestamp: Long) = {
+    (timestamp - 1509310839249L) / 15000L + 4453849
+  }
+
   case class Context(constraints: EVMConstraints = EVMConstraints(),
-                     callCount: Int = 0) {
+                     callCount: Int = 0,
+                     timestamp: Long = System.currentTimeMillis() / 1000,
+                     blockNumber: Long = estimateBlockNumber(System.currentTimeMillis)
+                    ) {
     def incrementCalls = copy(callCount = callCount + 1)
     def addNonNegativityConstraint(m: AttackerControlled) = {
       copy(constraints =
@@ -58,6 +65,9 @@ object Execution {
          |
          |Call Count: $callCount
       |""".stripMargin
+    def mkTimestamp = new Timestamp(timestamp)
+    def mkBlockNumber = new Blocknumber(blockNumber)
+
   }
   sealed trait ExecutionState
   sealed trait NonFinalExecutionState extends ExecutionState {
@@ -92,32 +102,35 @@ object Execution {
   }
 
   def attackState(targettedContract: EVMData, contracts: Map[EVMData, Contract], returnDataSize: EVMData,
-                  context: Context = Context(), maxCalls: Int = maxCalls) = {
-    val contract = contracts(targettedContract)
-    val victim = contracts(targettedContract)
-    val attackerContract = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
-    val callValue = SpentMoney(context.callCount)
-    val newContracts = contracts +
-      (targettedContract -> victim.copy(value = victim.value + callValue)) +
-      (AttackerControlledAddress -> attackerContract.copy(value = attackerContract.value - callValue))
-    val callDataLength = CallDataLength(context.callCount)
-    val newContext = context.addNonNegativityConstraint(callValue).addNonNegativityConstraint(callDataLength)
-    AttackerContractState(
-      targettedContract = targettedContract,
-      calledState = RunningState(
-        address = targettedContract,
-        contracts = newContracts,
-        code = contract.code,
-        context = newContext,
-        callData = defaultCallData(context.callCount),
-        callDataLength = callDataLength,
-        callValue = callValue
-      ),
-      returnDataSize = returnDataSize,
-      context = newContext,
-      startContracts = contracts,
-      maxCalls = maxCalls
-    )
+                  context: Context = Context(), maxCalls: Int = maxCalls): ExecutionState = {
+    contracts.get(targettedContract) match {
+      case Some(victim) =>
+        val attackerContract = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
+        val callValue = SpentMoney(context.callCount)
+        val newContracts = contracts +
+          (targettedContract -> victim.copy(value = victim.value + callValue)) +
+          (AttackerControlledAddress -> attackerContract.copy(value = attackerContract.value - callValue))
+        val callDataLength = CallDataLength(context.callCount)
+        val newContext = context.addNonNegativityConstraint(callValue).addNonNegativityConstraint(callDataLength)
+        AttackerContractState(
+          targettedContract = targettedContract,
+          calledState = RunningState(
+            address = targettedContract,
+            contracts = newContracts,
+            code = victim.code,
+            context = newContext,
+            callData = defaultCallData(context.callCount),
+            callDataLength = callDataLength,
+            callValue = callValue
+          ),
+          returnDataSize = returnDataSize,
+          context = newContext,
+          startContracts = contracts,
+          maxCalls = maxCalls
+        )
+      case None =>
+        FinishedState(context, true, SortedMap.empty, contracts) // Can happen if contract self-destructs
+    }
   }
   case class AttackerContractState(calledState: ExecutionState,
                                    returnDataSize: EVMData,
@@ -349,11 +362,11 @@ object Execution {
           }
         case TIMESTAMP =>
           simpleInstruction {
-            case stack => Timestamp :: stack
+            case stack => context.mkTimestamp :: stack
           }
         case NUMBER =>
           simpleInstruction {
-            case stack => Blocknumber :: stack
+            case stack => context.mkBlockNumber :: stack
           }
         case DIFFICULTY =>
           simpleInstruction {

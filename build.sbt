@@ -11,8 +11,11 @@ lazy val root = (project in file(".")).
     )),
     name := "ethereum-tools",
     libraryDependencies ++= List(
+      ethereumJ,
+      akkaHttp,
+      akkaHttpXml,
       scalaTest % Test,
-      ethereumJ
+      akkaHttpTestKit % Test
     )
   )
 
