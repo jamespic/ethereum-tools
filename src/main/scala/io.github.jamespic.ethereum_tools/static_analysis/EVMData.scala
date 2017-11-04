@@ -208,13 +208,19 @@ case object AttackerControlled extends AttackerControlled with HashMemo {
     case _ => false
   }
 }
-case class CallData(start: EVMData = 0, length: EVMData = CallDataLength(0), callId: Int = 0) extends AttackerControlled with HashMemo with MemoryLike {
+
+trait AttackerControlledMemory
+  extends AttackerControlled with MemoryLike {
+  val start: EVMData
+  val length: EVMData
+  val callId: Int
+
   override def toString = callId match {
-    case 0 => s"CallData($start, $length)"
-    case a => s"CallData_${a}($start, $length)"
+    case 0 => s"${getClass.getSimpleName}($start, $length)"
+    case a => s"${getClass.getSimpleName}_${a}($start, $length)"
   }
 
-  override def getRange(rStart: EVMData, rLength: EVMData) = {
+  def getRange(rStart: EVMData, rLength: EVMData) = {
     val sliced = slice(rStart, rLength)
     val rangeLength = rLength match {
       case Constant(l) => l.toInt
@@ -223,7 +229,7 @@ case class CallData(start: EVMData = 0, length: EVMData = CallDataLength(0), cal
     SortedMap(MemRange(0, rangeLength) -> sliced)
   }
 
-  override def slice(rStart: EVMData, rLength: EVMData) = {
+  def slice(rStart: EVMData, rLength: EVMData) = {
     val newLength = (rStart, rLength, length) match {
       case (Constant(rS), Constant(rL), Constant(l)) if l < rS + rL => Constant(l)
       case _ => rLength
@@ -231,19 +237,19 @@ case class CallData(start: EVMData = 0, length: EVMData = CallDataLength(0), cal
     CallData(start + rStart, newLength, callId)
   }
 
-  override def get(start: EVMData, len: EVMData) = slice(start, len)
+  def get(start: EVMData, len: EVMData) = slice(start, len)
 
-  override def put(key: EVMData, value: EVMData) = promote.put(key, value)
+  def put(key: EVMData, value: EVMData) = promote.put(key, value)
 
-  override def putRange(start: EVMData, length: EVMData, data: Iterable[(MemRange, EVMData)]) = {
+  def putRange(start: EVMData, length: EVMData, data: Iterable[(MemRange, EVMData)]) = {
     promote.putRange(start, length, data)
   }
 
-  override def getBinary(start: EVMData, length: EVMData): Array[Byte] = new Array[Byte](guessLength(length))
+  def getBinary(start: EVMData, length: EVMData): Array[Byte] = new Array[Byte](guessLength(length))
 
-  override val binary: Array[Byte] = new Array[Byte](guessLength(length))
+  val binary: Array[Byte] = new Array[Byte](guessLength(length))
 
-  private def promote = {
+  protected def promote = {
     Memory().putRange(0, length, Iterable(MemRange(0, guessLength(length)) -> this))
   }
 
@@ -252,9 +258,14 @@ case class CallData(start: EVMData = 0, length: EVMData = CallDataLength(0), cal
     case _ => 256
   }
 }
+
+case class CallData(start: EVMData = 0,
+                    length: EVMData = CallDataLength(0),
+                    callId: Int = 0) extends AttackerControlledMemory with HashMemo
+
 case class CallDataLength(callId: Int) extends AttackerControlled with HashMemo
 case object AttackerControlledAddress extends AttackerControlled with HashMemo
-case class AttackerReturnData(start: Int, offset: Int, call: Int) extends AttackerControlled with HashMemo
+case class AttackerReturnData(start: EVMData, length: EVMData, callId: Int) extends AttackerControlledMemory with HashMemo
 object DefenderControlled {
   def unapply(data: EVMData): Boolean = data match {
     case x: DefenderControlled => true

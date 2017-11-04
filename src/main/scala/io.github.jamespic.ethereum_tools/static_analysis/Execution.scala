@@ -27,13 +27,7 @@ object Execution {
   def attackerContractReturnData(returnDataSize: Int, callId: Int) = {
     SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize, callId))
   }
-  def attackerContractReturnData(dataLength: EVMData, callId: Int) = {
-    val returnDataSize = dataLength match {
-      case Constant(n) => n.toInt
-      case _ => 0
-    }
-    SortedMap(MemRange(0, returnDataSize) -> AttackerReturnData(0, returnDataSize, callId))
-  }
+  def attackerContractReturnData(dataLength: EVMData, callId: Int) = AttackerReturnData(0, dataLength, callId)
 
   val maxCalls = 2
 
@@ -74,7 +68,7 @@ object Execution {
     def nextStates: Seq[ExecutionState]
   }
   case class FinishedState(context: Context, success: Boolean,
-                           result: SortedMap[MemRange, EVMData],
+                           result: MemoryLike,
                            contracts: Map[EVMData, Contract]) extends ExecutionState with HashMemo {
   }
   case class ContractCallState(returnState: RunningState, calledState: ExecutionState,
@@ -87,7 +81,7 @@ object Execution {
         case FinishedState(context, true, result, contracts) =>
             returnState.copy(
               stack = True :: returnState.stack,
-              memory = returnState.memory.putRange(returnLoc, returnSize, result),
+              memory = returnState.memory.putRange(returnLoc, returnSize, result.getRange(0, returnSize)),
               context = context,
               contracts = contracts
             ) :: Nil
@@ -129,7 +123,7 @@ object Execution {
           maxCalls = maxCalls
         )
       case None =>
-        FinishedState(context, true, SortedMap.empty, contracts) // Can happen if contract self-destructs
+        FinishedState(context, true, Memory(), contracts) // Can happen if contract self-destructs
     }
   }
   case class AttackerContractState(calledState: ExecutionState,
@@ -171,20 +165,20 @@ object Execution {
     private def simpleInstruction(modifier: PartialFunction[List[EVMData], List[EVMData]])  = {
       modifier.lift(stack) match {
         case Some(stack) => copy(stack = stack, instructionPointer = instructionPointer + 1) :: Nil
-        case None => FinishedState(context, false, SortedMap.empty, contracts) :: Nil
+        case None => fail
       }
     }
     def balance = contracts.get(address).map(_.value).getOrElse(Constant(0))
 
     private def incrementIP = copy(instructionPointer = instructionPointer + 1)
-    private def fail = FinishedState(context, false, SortedMap.empty, contracts) :: Nil
+    private def fail = FinishedState(context, false, Memory(), contracts) :: Nil
     def nextInst = decode(code.binary, instructionPointer)
 
     def nextStates: Seq[ExecutionState] = {
       val inst = decode(code.binary, instructionPointer)
       inst match {
         case STOP =>
-          FinishedState(context, true, SortedMap.empty, contracts) :: Nil
+          FinishedState(context, true, Memory(), contracts) :: Nil
         case ADD =>
           simpleInstruction {
             case a :: b :: tail => a + b :: tail
@@ -427,7 +421,7 @@ object Execution {
               val validDest = decode(code.binary, a.toInt) == JUMPDEST
               def jumpState(newContext: Context) ={
                 if (validDest) copy(instructionPointer = a.toInt, stack = tail, context = newContext)
-                else FinishedState(newContext, false, SortedMap.empty, contracts)
+                else FinishedState(newContext, false, Memory(), contracts)
               }
               context.implies(v) match {
                 case Always => jumpState(context) :: Nil
@@ -491,7 +485,7 @@ object Execution {
                   (
                     whenYes.map(context => newContract.copy(context = context))
                       ++
-                    whenNo.map(context => FinishedState(context, false, SortedMap.empty, contracts))
+                    whenNo.map(context => FinishedState(context, false, Memory(), contracts))
                   ).toSeq
               }
             case _ => fail
@@ -545,7 +539,7 @@ object Execution {
                   }
                 case _ =>
                   // Not a contract, just send money
-                  Seq(FinishedState(context, true, SortedMap.empty, newContracts))
+                  Seq(FinishedState(context, true, Memory(), newContracts))
               }
               (for {
                   newContext <- enoughMoneyContexts.toSeq
@@ -599,7 +593,7 @@ object Execution {
                   }
                 case _ =>
                   // A weird thing to do, but strictly valid
-                  Seq(FinishedState(context, true, SortedMap.empty, contracts))
+                  Seq(FinishedState(context, true, Memory(), contracts))
               }
               (for (calledState <- contractCalls) yield {
                 ContractCallState(
@@ -649,7 +643,7 @@ object Execution {
                   }
                 case _ =>
                   // A weird thing to do, but strictly valid
-                  Seq(FinishedState(context, true, SortedMap.empty, contracts))
+                  Seq(FinishedState(context, true, Memory(), contracts))
               }
               (for (calledState <- contractCalls) yield {
                 ContractCallState(
@@ -667,19 +661,19 @@ object Execution {
         case RETURN =>
           stack match {
             case a :: b :: tail =>
-              Seq(FinishedState(context, true, memory.getRange(a, b), contracts))
+              Seq(FinishedState(context, true, memory.slice(a, b), contracts))
             case _ => fail
           }
         case UNKNOWN|INVALID|REVERT =>
-          Seq(FinishedState(context, false, SortedMap.empty, contracts))
+          fail
         case SELFDESTRUCT =>
           stack match {
             case a :: tail =>
               val recipient = contracts.getOrElse(a, Contract(Memory()))
               Seq(
-                FinishedState(context, true, SortedMap.empty,
+                FinishedState(context, true, Memory(),
                   contracts - address + (a -> recipient.copy(value = contract.value))),
-                FinishedState(context, false, SortedMap.empty, contracts) // Yes, SELFDESTRUCT can fail
+                FinishedState(context, false, Memory(), contracts) // Yes, SELFDESTRUCT can fail
               )
             case _ => fail
           }

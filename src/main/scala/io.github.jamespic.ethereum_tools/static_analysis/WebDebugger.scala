@@ -233,15 +233,7 @@ class WebDebugger(contracts: Map[EVMData, Contract]) {
         <p><strong>Success:</strong> {state.success}</p>
         <h2>Result</h2>
         <dl class="row">
-          {
-            state.result.flatMap {
-              case (MemRange(start, length), value) =>
-                Seq(
-                  <dt class="col-sm-2">{start.toHexString} - {(start + length).toHexString}</dt>,
-                  <dd class="col-sm-10">{value.toString}</dd>
-                )
-            }
-          }
+          {renderMemory(state.result)}
         </dl>
         <h2>Constraints</h2> :+
         renderConstraints(state)

@@ -26,6 +26,8 @@ case object Memory {
 
   def apply(knownRanges: SortedMap[MemRange, EVMData] = SortedMap.empty) =
     new Memory(Map(Constant(0) -> MemoryZone(knownRanges)))
+  def apply(knownRanges: (MemRange, EVMData)*) =
+    new Memory(Map(Constant(0) -> MemoryZone(SortedMap(knownRanges: _*))))
 }
 case class Memory(zones: Map[EVMData, MemoryZone]) extends HashMemo with MemoryLike {
   private def getZoneStartAndOffset(start: EVMData) = start match {

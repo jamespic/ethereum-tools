@@ -4,7 +4,7 @@ import scala.collection.SortedMap
 import org.ethereum.vm.PrecompiledContracts.{BN128Addition, BN128Multiplication, BN128Pairing, ModExp, PrecompiledContract => EJPC}
 
 object PrecompiledContracts {
-  case class PrecompiledResult(success: Boolean, data: SortedMap[MemRange, EVMData])
+  case class PrecompiledResult(success: Boolean, data: MemoryLike)
   type Precompiled = (MemoryLike, EVMData) => Seq[PrecompiledResult]
   val Contracts: Map[Int, Precompiled] = Map(
     1 -> ecRecover _,
@@ -23,35 +23,35 @@ object PrecompiledContracts {
         Seq(
           PrecompiledResult(
             true,
-            SortedMap(MemRange(0, 32) -> AttackerControlledAddress)
+            Memory(MemRange(0, 32) -> AttackerControlledAddress)
           )
         )
       case (DefenderControlled(), DefenderControlled(), DefenderControlled(), DefenderControlled()) =>
         Seq(
           PrecompiledResult(
             true,
-            SortedMap(MemRange(0, 32) -> DefenderControlledAddress)
+            Memory(MemRange(0, 32) -> DefenderControlledAddress)
           )
         )
       case _ => Nil
     }
-    successResults :+ PrecompiledResult(false, SortedMap.empty)
+    successResults
   }
   def sha256(memory: MemoryLike, length: EVMData): Seq[PrecompiledResult] = {
     val hash = new SHA256(
       memory.getRange(0, length).values.toSeq,
       memory.getBinary(0, length)
     )
-    Seq(PrecompiledResult(true, SortedMap(MemRange(0, 32) -> hash)))
+    Seq(PrecompiledResult(true, Memory(MemRange(0, 32) -> hash)))
   }
   def ripemd(memory: MemoryLike, length: EVMData): Seq[PrecompiledResult] = {
     val hash = new Ripemd(
       memory.getRange(0, length).values.toSeq,
       memory.getBinary(0, length)
     )
-    Seq(PrecompiledResult(true, SortedMap(MemRange(0, 32) -> hash)))
+    Seq(PrecompiledResult(true, Memory(MemRange(0, 32) -> hash)))
   }
-  def memcopy(memory: MemoryLike, length: EVMData) = Seq(PrecompiledResult(true, memory.getRange(0, length)))
+  def memcopy(memory: MemoryLike, length: EVMData) = Seq(PrecompiledResult(true, memory.slice(0, length)))
   def modexp(memory: MemoryLike, length: EVMData): Seq[PrecompiledResult] = {
     val baseLen = memory.get(0)
     val expLen = memory.get(32)
@@ -66,7 +66,7 @@ object PrecompiledContracts {
         val exp = memory.get(96 + baseLen, expLen)
         val mod = memory.get(96 + baseLen + expLen, modLen)
         val symbolicResult = ModExpr(ExpExpr(base, exp), mod)
-        Seq(PrecompiledResult(true, SortedMap(MemRange(0, 32) -> symbolicResult)))
+        Seq(PrecompiledResult(true, Memory(MemRange(0, 32) -> symbolicResult)))
     }
   }
   def bnAdd(memory: MemoryLike, length: EVMData): Seq[PrecompiledResult] = {
@@ -79,8 +79,7 @@ object PrecompiledContracts {
       val y2 = memory.get(96)
       val result = CurvePoint(x1, y1) + CurvePoint(x2, y2)
       Seq(
-        PrecompiledResult(true, SortedMap(MemRange(0, 64) -> result)),
-        PrecompiledResult(false, SortedMap())
+        PrecompiledResult(true, Memory(MemRange(0, 64) -> result))
       )
     }
 
@@ -94,8 +93,7 @@ object PrecompiledContracts {
       val s = memory.get(64)
       val result = MulExpr(s, CurvePoint(x, y))
       Seq(
-        PrecompiledResult(true, SortedMap(MemRange(0, 64) -> result)),
-        PrecompiledResult(false, SortedMap())
+        PrecompiledResult(true, Memory(MemRange(0, 64) -> result))
       )
     }
 
@@ -108,6 +106,6 @@ object PrecompiledContracts {
     val result = contract.execute(memory.binary)
     val success = result.getLeft.booleanValue
     val output = result.getRight
-    Seq(PrecompiledResult(success, SortedMap(MemRange(0,output.length) -> BinaryConstant(output))))
+    Seq(PrecompiledResult(success, Memory(MemRange(0,output.length) -> BinaryConstant(output))))
   }
 }
