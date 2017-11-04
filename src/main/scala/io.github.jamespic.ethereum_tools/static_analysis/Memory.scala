@@ -151,7 +151,7 @@ case class MemoryZone(knownRanges: SortedMap[MemRange, EVMData] = SortedMap.empt
 
   def get(start: Int, length: Int): EVMData = {
     ((Constant(0):EVMData) /: getRange(start, length)){
-      case (x, (MemRange(_, end), y)) => x +! y * (BigInt(1) << (8 * (length - end)))
+      case (x, (MemRange(_, end), y)) => x + y * (BigInt(1) << (8 * (length - end)))
     }
   }
 

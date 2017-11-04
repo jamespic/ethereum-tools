@@ -30,6 +30,7 @@ object Execution {
   def attackerContractReturnData(dataLength: EVMData, callId: Int) = AttackerReturnData(0, dataLength, callId)
 
   val maxCalls = 2
+  val maxLoopSize = 3
 
   def estimateBlockNumber(timestamp: Long) = {
     (timestamp - 1509310839249L) / 15000L + 4453849
@@ -159,13 +160,25 @@ object Execution {
                           stack: List[EVMData] = Nil, memory: MemoryLike = Memory(),
                           sender: EVMData = AttackerControlledAddress,
                           callValue: EVMData = Constant(0), context: Context = Context(),
-                          callData: MemoryLike = defaultCallData(), callDataLength: EVMData = CallDataLength(0)
+                          callData: MemoryLike = defaultCallData(), callDataLength: EVMData = CallDataLength(0),
+                          backwardsJumpCount: Map[Int, Int] = Map.empty
                      ) extends NonFinalExecutionState with HashMemo {
     lazy val contract = contracts(address)
     private def simpleInstruction(modifier: PartialFunction[List[EVMData], List[EVMData]])  = {
       modifier.lift(stack) match {
         case Some(stack) => copy(stack = stack, instructionPointer = instructionPointer + 1) :: Nil
         case None => fail
+      }
+    }
+    def vetBackwardsJumps(newStates: Seq[ExecutionState]) = {
+      newStates flatMap {
+        case x: RunningState if x.instructionPointer < instructionPointer =>
+          backwardsJumpCount.getOrElse(instructionPointer, 0) match {
+            case c if c <= maxLoopSize =>
+              Seq(x.copy(backwardsJumpCount = backwardsJumpCount.updated(instructionPointer, c + 1)))
+            case _ => Nil
+          }
+        case x => Seq(x)
       }
     }
     def balance = contracts.get(address).map(_.value).getOrElse(Constant(0))
@@ -412,29 +425,31 @@ object Execution {
         case JUMP =>
           stack match {
             case Constant(a) :: tail if decode(code.binary, a.toInt) == JUMPDEST =>
-              copy(instructionPointer = a.toInt, stack = tail) :: Nil
+              vetBackwardsJumps(Seq(copy(instructionPointer = a.toInt, stack = tail)))
             case _ => fail
           }
         case JUMPI =>
-          stack match {
-            case Constant(a) :: v :: tail  =>
-              val validDest = decode(code.binary, a.toInt) == JUMPDEST
-              def jumpState(newContext: Context) ={
-                if (validDest) copy(instructionPointer = a.toInt, stack = tail, context = newContext)
-                else FinishedState(newContext, false, Memory(), contracts)
-              }
-              context.implies(v) match {
-                case Always => jumpState(context) :: Nil
-                case Never => copy(stack = tail).incrementIP :: Nil
-                case Sometimes(whenYes, whenNo) =>
-                  (
-                    whenYes.map(newContext => jumpState(newContext))
-                      ++
-                    whenNo.map(context => copy(stack = tail, context = context).incrementIP)
-                  ).toSeq
-              }
-            case _ => fail
-          }
+          vetBackwardsJumps(
+            stack match {
+              case Constant(a) :: v :: tail  =>
+                val validDest = decode(code.binary, a.toInt) == JUMPDEST
+                def jumpState(newContext: Context) ={
+                  if (validDest) copy(instructionPointer = a.toInt, stack = tail, context = newContext)
+                  else FinishedState(newContext, false, Memory(), contracts)
+                }
+                context.implies(v) match {
+                  case Always => jumpState(context) :: Nil
+                  case Never => copy(stack = tail).incrementIP :: Nil
+                  case Sometimes(whenYes, whenNo) =>
+                    (
+                      whenYes.map(newContext => jumpState(newContext))
+                        ++
+                      whenNo.map(context => copy(stack = tail, context = context).incrementIP)
+                    ).toSeq
+                }
+              case _ => fail
+            }
+          )
         case PC =>
           copy(stack = Constant(instructionPointer) :: stack).incrementIP :: Nil
         case MSIZE =>
@@ -443,7 +458,7 @@ object Execution {
           }
         case GAS =>
           simpleInstruction {
-            case stack => AttackerControlled :: stack
+            case stack => Gas :: stack
           }
         case JUMPDEST => incrementIP :: Nil
         case PUSH(l, _) =>

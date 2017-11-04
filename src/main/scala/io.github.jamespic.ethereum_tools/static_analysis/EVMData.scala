@@ -17,27 +17,18 @@ object EVMData {
 
   implicit def intToConstant(i: Int): EVMData = Constant(BigInt(i))
   implicit def bigIntToConstant(i: BigInt): EVMData = Constant(i)
-
-  val maxLoopSize = 3
 }
 sealed trait EVMData {
   import EVMData._
   def +(that: EVMData): EVMData = (this, that) match {
-      // break out of loops early -- unlikely to be a value we'd encounter otherwise
-    case (Constant(a), Constant(b)) if a == 1 && b == maxLoopSize => DefenderControlledData
-    case (Constant(a), Constant(b)) if b == 1 && a == maxLoopSize => DefenderControlledData
     case (Constant(_), DefenderControlledData) => DefenderControlledData
     case (DefenderControlledData, Constant(_)) => DefenderControlledData
     case (DefenderControlledData, DefenderControlledData) => DefenderControlledData
-    case (a, b) => a +! b
-  }
-  def +!(that: EVMData): EVMData = (this, that) match {
-    // Unsafe form that can grow indefinitely - only for internal use
     case (Constant(a), Constant(b)) => Constant(a + b)
     case (Constant(a), b) if a == 0 => b
     case (a, Constant(b)) if b == 0 => a
     case (AddExpr(a, Constant(b)), Constant(c)) => AddExpr(a, Constant(b + c)) // Associate constants and add
-    case (Constant(a), b) => b +! Constant(a) // commute constants to the right
+    case (Constant(a), b) => b + Constant(a) // commute constants to the right
     case (a, Constant(b)) => AddExpr(a, Constant(b)) // commute constants to the right
     case (a, b) if a.hashCode < b.hashCode => AddExpr(a, b)
     case (a, b) => AddExpr(b, a)
@@ -277,6 +268,7 @@ object DefenderControlled {
   }
 }
 case object GasPrice extends AttackerControlled with HashMemo
+case object Gas extends AttackerControlled with HashMemo // This is shit, but probably doesn't matter
 sealed trait DefenderControlled extends EVMData
 case object DefenderControlledData extends DefenderControlled with HashMemo
 case object DefenderControlledAddress extends DefenderControlled with HashMemo
