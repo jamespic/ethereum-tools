@@ -29,7 +29,7 @@ object Execution {
   }
   def attackerContractReturnData(dataLength: EVMData, callId: Int) = AttackerReturnData(0, dataLength, callId)
 
-  val maxCalls = 2
+  val maxCalls = 3
   val maxLoopSize = 3
 
   def estimateBlockNumber(timestamp: Long) = {
@@ -77,7 +77,7 @@ object Execution {
                                context: Context = Context()) extends NonFinalExecutionState with HashMemo {
     def nextStates: Seq[ExecutionState] = {
       calledState match {
-        case x: NonFinalExecutionState if context.callCount < maxCalls =>
+        case x: NonFinalExecutionState =>
           for (nextState <- x.nextStates) yield copy(calledState = nextState)
         case FinishedState(context, true, result, contracts) =>
             returnState.copy(
@@ -141,13 +141,14 @@ object Execution {
         if (contracts == startContracts) Nil // This did nothing interesting
         else {
           val returnValue = x.copy(result = attackerContractReturnData(returnDataSize, context.callCount))
-          val otherActions = if (context.callCount < maxCalls) {
+          val incrementedContext = context.incrementCalls
+          val otherActions = if (incrementedContext.callCount < maxCalls) {
             Seq(
               attackState(
                 targettedContract = targettedContract,
                 contracts = contracts,
                 returnDataSize = returnDataSize,
-                context = context.incrementCalls
+                context = incrementedContext
               )
             )
           } else Nil
@@ -521,22 +522,23 @@ object Execution {
               val callData = memory.slice(dataOffset, dataLength)
               def contractCalls(context: Context): Seq[ExecutionState] = to match {
                 case AttackerControlled() =>
-                  Seq(
+                  val nextAttackStates = if (context.callCount < maxCalls) Seq(
                     attackState(
                       contracts = newContracts,
                       targettedContract = address,
                       context = context,
                       returnDataSize = returnLength,
                       maxCalls = 0
-                    ),
-                    FinishedState(
-                      context = context,
-                      success = true,
-                      result = attackerContractReturnData(returnLength, context.callCount),
-                      contracts = newContracts
                     )
+                  ) else Nil
+                  nextAttackStates :+
+                  FinishedState(
+                    context = context,
+                    success = true,
+                    result = attackerContractReturnData(returnLength, context.callCount),
+                    contracts = newContracts
                   )
-                case to if contracts contains to =>
+                case to if (contracts contains to) && context.callCount < maxCalls =>
                   // Forward to other contract
                   Seq(RunningState(
                     address = to,
