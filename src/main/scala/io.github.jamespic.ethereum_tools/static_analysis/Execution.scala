@@ -29,14 +29,13 @@ object Execution {
   }
   def attackerContractReturnData(dataLength: EVMData, callId: Int) = AttackerReturnData(0, dataLength, callId)
 
-  val maxCalls = 3
-  val maxLoopSize = 3
-
   def estimateBlockNumber(timestamp: Long) = {
     (timestamp - 1509310839249L) / 15000L + 4453849
   }
 
   case class Context(constraints: EVMConstraints = EVMConstraints(),
+                     maxCalls: Int = 3,
+                     maxLoopSize: Int = 2,
                      callCount: Int = 0,
                      timestamp: Long = System.currentTimeMillis() / 1000,
                      blockNumber: Long = estimateBlockNumber(System.currentTimeMillis)
@@ -97,7 +96,9 @@ object Execution {
   }
 
   def attackState(targettedContract: EVMData, contracts: Map[EVMData, Contract], returnDataSize: EVMData,
-                  context: Context = Context(), maxCalls: Int = maxCalls): ExecutionState = {
+                  context: Context = Context(),
+                  /* Overridable to prevent re-recursion */
+                  maxCalls: Int = 0): ExecutionState = {
     contracts.get(targettedContract) match {
       case Some(victim) =>
         val attackerContract = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
@@ -132,7 +133,8 @@ object Execution {
                                    targettedContract: EVMData,
                                    context: Context,
                                    startContracts: Map[EVMData, Contract],
-                                   maxCalls: Int = maxCalls) extends NonFinalExecutionState with HashMemo {
+                                   /* Overridable to prevent re-recursion */
+                                   maxCalls: Int = 0) extends NonFinalExecutionState with HashMemo {
     def nextStates: Seq[ExecutionState] = calledState match {
       case x: NonFinalExecutionState =>
         for (nextState <- x.nextStates) yield copy(calledState = nextState)
@@ -148,7 +150,8 @@ object Execution {
                 targettedContract = targettedContract,
                 contracts = contracts,
                 returnDataSize = returnDataSize,
-                context = incrementedContext
+                context = incrementedContext,
+                maxCalls = maxCalls
               )
             )
           } else Nil
@@ -175,7 +178,7 @@ object Execution {
       newStates flatMap {
         case x: RunningState if x.instructionPointer < instructionPointer =>
           backwardsJumpCount.getOrElse(instructionPointer, 0) match {
-            case c if c <= maxLoopSize =>
+            case c if c <= context.maxLoopSize =>
               Seq(x.copy(backwardsJumpCount = backwardsJumpCount.updated(instructionPointer, c + 1)))
             case _ => Nil
           }
@@ -522,7 +525,7 @@ object Execution {
               val callData = memory.slice(dataOffset, dataLength)
               def contractCalls(context: Context): Seq[ExecutionState] = to match {
                 case AttackerControlled() =>
-                  val nextAttackStates = if (context.callCount < maxCalls) Seq(
+                  val nextAttackStates = if (context.callCount < context.maxCalls) Seq(
                     attackState(
                       contracts = newContracts,
                       targettedContract = address,
@@ -538,7 +541,7 @@ object Execution {
                     result = attackerContractReturnData(returnLength, context.callCount),
                     contracts = newContracts
                   )
-                case to if (contracts contains to) && context.callCount < maxCalls =>
+                case to if (contracts contains to) && context.callCount < context.maxCalls =>
                   // Forward to other contract
                   Seq(RunningState(
                     address = to,

@@ -27,7 +27,7 @@ class StateCache(contracts: Map[EVMData, Contract]) {
   val backReferences = new ConcurrentHashMap[Int, Int]
 
   def startDebugging(contractAddress: BigInt) = {
-    val state = attackState(Constant(contractAddress), contracts, 0)
+    val state = attackState(Constant(contractAddress), contracts, 0, maxCalls = 3)
     stateCache.put(getId(state), state)
     getId(state)
   }
