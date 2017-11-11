@@ -292,10 +292,15 @@ object Execution {
         case SHA3 =>
           simpleInstruction {
             case a :: b :: tail =>
-              new Keccak256(
-                memory.getRange(a, b).values.toSeq,
-                memory.getBinary(a, b)
-              ) :: tail
+              val values = memory.getRange(a, b).values.toSeq
+              if (values.forall(_.isConstant)) {
+                new ConstantKeccak256(
+                  values,
+                  memory.getBinary(a, b)
+                ) :: Nil
+              } else {
+                VarKeccak256(values) :: Nil
+              }
           }
         case ADDRESS =>
           simpleInstruction {

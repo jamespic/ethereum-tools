@@ -7,10 +7,8 @@ import io.github.jamespic.ethereum_tools.static_analysis.StaticAnalysis.analyseC
 import io.github.jamespic.ethereum_tools.static_analysis.listeners.{LineNumberListener, MultiListener, SentMoneyListener}
 
 object AnalyseParityWallet extends App {
-//  val listener = SentMoneyListener()
   val listener = MultiListener(
     Map(
-//      "line" -> LineNumberListener(0x318),
       "money" -> SentMoneyListener()
     )
   )

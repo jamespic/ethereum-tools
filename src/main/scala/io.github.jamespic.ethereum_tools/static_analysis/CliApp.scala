@@ -6,25 +6,25 @@ import javax.xml.bind.DatatypeConverter.parseHexBinary
 import io.github.jamespic.ethereum_tools.static_analysis.Execution.Contract
 import io.github.jamespic.ethereum_tools.static_analysis.StaticAnalysis.analyseContract
 import io.github.jamespic.ethereum_tools.static_analysis.listeners.{HistoryListener, LineNumberListener, MultiListener, SentMoneyListener}
+import org.web3j.protocol.{Web3j, Web3jService}
+import org.web3j.protocol.http.HttpService
+import org.web3j.utils.Numeric.decodeQuantity
 
 object CliApp extends App {
-  val contractCode = this.args match {
+  val ContractRe = "(0x[0-9a-fA-F]{40})".r
+  val (contracts, address) = args match {
+    case Array(ContractRe(addr)) =>
+      val blockchain = BlockchainContracts.default
+      val contracts = blockchain.ContractMap()
+      val address = BigInt(decodeQuantity(addr))
+      (contracts, address)
     case Array(filename) =>
-      parseHexBinary(Source.fromFile(filename).getLines().mkString(""))
-    case _ => parseHexBinary(
-      "6000" // PUSH 0 - out length
-        + "6000" // PUSH 0 - out offset
-        + "6000" // PUSH 0 - in length
-        + "6000" // PUSH 0 - in offset
-        + "6001303103" // PUSH 1 ADDRESS BALANCE SUB - value
-        + "33" // CALLER - to
-        + "62100000" // PUSH 100000 - gas
-        + "f1" // CALL
-    )
+      val contractCode = parseHexBinary(Source.fromFile(filename).getLines().mkString(""))
+      val simpleContract = Contract(Memory(contractCode), Map.empty, Constant(1000000))
+      val address = BigInt(1000000)
+      val contracts = Map[EVMData, Contract](Constant(address) -> simpleContract)
+      (contracts, address)
   }
-  val simpleContract = Contract(Memory(contractCode), Map.empty, Constant(1000000))
-  val address = BigInt(1000000)
-  val contracts = Map[EVMData, Contract](Constant(address) -> simpleContract)
   val listener = SentMoneyListener()
   for ((interest, state) <- analyseContract(address, contracts, listener)) {
     println(s"Interest: $interest, When:\n${state.context}")

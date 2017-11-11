@@ -14,6 +14,7 @@ lazy val root = (project in file(".")).
       ethereumJ,
       akkaHttp,
       akkaHttpXml,
+      web3j,
       scalaTest % Test,
       akkaHttpTestKit % Test
     )

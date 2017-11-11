@@ -15,6 +15,7 @@ import akka.stream.scaladsl.Flow
 import akka.util.ByteString
 import io.github.jamespic.ethereum_tools.Bytecode
 import io.github.jamespic.ethereum_tools.static_analysis.Execution._
+import org.web3j.protocol.Web3jService
 
 import scala.io.{Source, StdIn}
 import scala.xml.NodeSeq
@@ -318,11 +319,12 @@ class WebDebugger(contracts: Map[EVMData, Contract]) {
 
 object WebDebugger extends App {
   val contracts = this.args match {
+    case Array("parityWallet") => parityWalletContracts
     case Array(filename) =>
       val contractCode = parseHexBinary(Source.fromFile(filename).getLines().mkString(""))
       val simpleContract = Contract(Memory(contractCode), Map.empty, Constant(0xfeed))
       Map[EVMData, Contract](Constant(0xfeed) -> simpleContract)
-    case _ => parityWalletContracts
+    case _ => BlockchainContracts.default.ContractMap()
   }
 
   new WebDebugger(contracts).run()

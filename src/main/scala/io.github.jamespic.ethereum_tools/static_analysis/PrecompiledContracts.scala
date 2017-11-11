@@ -38,17 +38,25 @@ object PrecompiledContracts {
     successResults
   }
   def sha256(memory: MemoryLike, length: EVMData): Seq[PrecompiledResult] = {
-    val hash = new SHA256(
-      memory.getRange(0, length).values.toSeq,
-      memory.getBinary(0, length)
-    )
+    val values = memory.getRange(0, length).values.toSeq
+    val hash = if (values.forall(_.isConstant)) {
+      new ConstantSHA256(
+        values,
+        memory.getBinary(0, length)
+      )
+    } else VarSHA256(values)
+
     Seq(PrecompiledResult(true, Memory(MemRange(0, 32) -> hash)))
   }
   def ripemd(memory: MemoryLike, length: EVMData): Seq[PrecompiledResult] = {
-    val hash = new Ripemd(
-      memory.getRange(0, length).values.toSeq,
-      memory.getBinary(0, length)
-    )
+    val values = memory.getRange(0, length).values.toSeq
+    val hash = if (values.forall(_.isConstant)) {
+      new ConstantRipemd(
+        values,
+        memory.getBinary(0, length)
+      )
+    } else VarRipemd(values)
+
     Seq(PrecompiledResult(true, Memory(MemRange(0, 32) -> hash)))
   }
   def memcopy(memory: MemoryLike, length: EVMData) = Seq(PrecompiledResult(true, memory.slice(0, length)))

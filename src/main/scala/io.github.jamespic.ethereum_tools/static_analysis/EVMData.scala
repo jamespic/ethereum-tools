@@ -351,14 +351,17 @@ sealed trait Hash extends EVMData {
   val data: Seq[EVMData]
 }
 
-class Keccak256(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(sha3(binData)) with Hash {
+case class VarKeccak256(data: Seq[EVMData]) extends Str(s"Keccak256(${data.mkString(", ")})") with Hash with HashMemo
+class ConstantKeccak256(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(sha3(binData)) with Hash {
   override def toString = s"Keccak256(${data.mkString(", ")})"
 }
 
-class SHA256(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(sha256(binData)) with Hash {
-  override def toString = s"Sha256(${data.mkString(", ")})"
+case class VarSHA256(data: Seq[EVMData]) extends Str(s"SHA256(${data.mkString(", ")})") with Hash with HashMemo
+class ConstantSHA256(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(sha256(binData)) with Hash {
+  override def toString = s"SHA256(${data.mkString(", ")})"
 }
 
-class Ripemd(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(ripemd160(binData)) with Hash {
+case class VarRipemd(data: Seq[EVMData]) extends Str(s"Ripemd(${data.mkString(", ")})") with Hash with HashMemo
+class ConstantRipemd(val data: Seq[EVMData], binData: Array[Byte]) extends BinaryConstant(ripemd160(binData)) with Hash {
   override def toString = s"Ripemd160(${data.mkString(", ")})"
 }
