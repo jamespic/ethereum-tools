@@ -157,6 +157,7 @@ sealed trait EVMData {
   def clipLowBytes(byteCount: Int): EVMData = this match {
     case b: BinaryConstant =>
       new BinaryConstant(b.binData.slice(0, b.binData.length - byteCount))
+    case CallData(start, Constant(length), callId) => CallData(start, (length - byteCount) max 0, callId)
     case CallData(start, length, callId) => CallData(start, length - byteCount, callId)
     case Constant(n) => Constant(u(n) >> (byteCount * 8))
     case a => DivExpr(a, Constant(1 << (byteCount * 8)))

@@ -35,7 +35,7 @@ object Execution {
 
   case class Context(constraints: EVMConstraints = EVMConstraints(),
                      maxCalls: Int = 3,
-                     maxLoopSize: Int = 2,
+                     maxLoopSize: Int = 3,
                      callCount: Int = 0,
                      timestamp: Long = System.currentTimeMillis() / 1000,
                      blockNumber: Long = estimateBlockNumber(System.currentTimeMillis)
@@ -546,6 +546,10 @@ object Execution {
                     result = attackerContractReturnData(returnLength, context.callCount),
                     contracts = newContracts
                   )
+                case Constant(n) if PrecompiledContracts.Contracts contains n.toInt =>
+                  PrecompiledContracts.Contracts(n.toInt)(callData, callDataLength) map {result =>
+                    FinishedState(context, result.success, result.data, newContracts)
+                  }
                 case to if (contracts contains to) && context.callCount < context.maxCalls =>
                   // Forward to other contract
                   Seq(RunningState(
@@ -558,10 +562,6 @@ object Execution {
                     callDataLength = dataLength,
                     context = context
                   ))
-                case Constant(n) if PrecompiledContracts.Contracts contains n.toInt =>
-                  PrecompiledContracts.Contracts(n.toInt)(callData, callDataLength) map {result =>
-                    FinishedState(context, result.success, result.data, newContracts)
-                  }
                 case _ =>
                   // Not a contract, just send money
                   Seq(FinishedState(context, true, Memory(), newContracts))
@@ -580,7 +580,7 @@ object Execution {
                   returnSize = returnLength,
                   context = incrementedContext
                 )
-              }) :+ this.copy(stack = False :: stack).incrementIP
+              }) :+ this.copy(stack = False :: tail).incrementIP
             case _ => fail
           }
         case CALLCODE =>
@@ -600,6 +600,10 @@ object Execution {
                   Seq(FinishedState(
                     context, true, attackerContractReturnData(returnLength, context.callCount),newContracts
                   ))
+                case Constant(n) if PrecompiledContracts.Contracts contains n.toInt =>
+                  PrecompiledContracts.Contracts(n.toInt)(callData, callDataLength) map {result =>
+                    FinishedState(context, result.success, result.data, contracts)
+                  }
                 case to if contracts contains to =>
                   // Forward to other contract
                   Seq(RunningState(
@@ -612,10 +616,6 @@ object Execution {
                     callDataLength = dataLength,
                     context = context
                   ))
-                case Constant(n) if PrecompiledContracts.Contracts contains n.toInt =>
-                  PrecompiledContracts.Contracts(n.toInt)(callData, callDataLength) map {result =>
-                    FinishedState(context, result.success, result.data, contracts)
-                  }
                 case _ =>
                   // A weird thing to do, but strictly valid
                   Seq(FinishedState(context, true, Memory(), contracts))
@@ -630,7 +630,7 @@ object Execution {
                   returnSize = returnLength,
                   context = context
                 )
-              }) :+ this.copy(stack = False :: stack).incrementIP
+              }) :+ this.copy(stack = False :: tail).incrementIP
             case _ => fail
           }
         case DELEGATECALL =>
@@ -650,6 +650,10 @@ object Execution {
                   Seq(FinishedState(
                     context, true, attackerContractReturnData(returnLength, context.callCount), newContracts)
                   )
+                case Constant(n) if PrecompiledContracts.Contracts contains n.toInt =>
+                  PrecompiledContracts.Contracts(n.toInt)(callData, callDataLength) map {result =>
+                    FinishedState(context, result.success, result.data, contracts)
+                  }
                 case to if contracts contains to =>
                   // Forward to other contract
                   Seq(RunningState(
@@ -662,10 +666,6 @@ object Execution {
                     callDataLength = dataLength,
                     context = context
                   ))
-                case Constant(n) if PrecompiledContracts.Contracts contains n.toInt =>
-                  PrecompiledContracts.Contracts(n.toInt)(callData, callDataLength) map {result =>
-                    FinishedState(context, result.success, result.data, contracts)
-                  }
                 case _ =>
                   // A weird thing to do, but strictly valid
                   Seq(FinishedState(context, true, Memory(), contracts))
@@ -680,7 +680,7 @@ object Execution {
                   returnSize = returnLength,
                   context = context
                 )
-              }) :+ this.copy(stack = False :: stack).incrementIP
+              }) :+ this.copy(stack = False :: tail).incrementIP
             case _ => fail
           }
         case RETURN =>
