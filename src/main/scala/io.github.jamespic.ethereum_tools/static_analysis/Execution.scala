@@ -297,9 +297,9 @@ object Execution {
                 new ConstantKeccak256(
                   values,
                   memory.getBinary(a, b)
-                ) :: Nil
+                ) :: tail
               } else {
-                VarKeccak256(values) :: Nil
+                VarKeccak256(values) :: tail
               }
           }
         case ADDRESS =>
