@@ -23,15 +23,17 @@ case class EVMConstraints(linearConstraints: NotEqualsConstraintWrapper[Attacker
     case Equals(DefenderControlled()|Constant(_), AttackerControlledAddress) => Never
     case Equals(DefenderControlled(), Constant(_)) => Never
     case Equals(Constant(_), DefenderControlled()) => Never
-    case Equals(HashDerived(), (_: Constant)|DefenderControlled())
-         |Equals((_: Constant)|DefenderControlled(), HashDerived()) => Never
     case Equals(a, b) if a == b => Always
-    case Equals(x: Hash, y: Hash) =>
-      if (x.data.length != y.data.length) Never
-      else
-        ((Always: When[EVMConstraints]) /: (x.data zip y.data)){
-          case (oldExpr, (x1, y1)) => oldExpr & implies(x1 === y1)
+    case Equals(HashClause(clauseA, constA), HashClause(clauseB, constB)) =>
+      if (constA != constB) Never
+      else {
+        val clause = clauseA - clauseB
+        clause.terms.toList match {
+          case Nil => Always
+          case List((hash1, factor1), (hash2, factor2)) if factor1 == -factor2 => equateHashes(hash1, hash2)
+          case _ => Never
         }
+      }
     case Not(x) => !implies(x)
     case AndExpr(a: Predicate, b: Predicate) => implies(a) & implies(b)
     case OrExpr(a: Predicate, b: Predicate) => implies(a) | implies(b)
@@ -55,6 +57,15 @@ case class EVMConstraints(linearConstraints: NotEqualsConstraintWrapper[Attacker
         Set(this.copy(otherConstraints = otherConstraints + !(x === 0))),
         Set(this.copy(otherConstraints = otherConstraints + (x === 0)))
       )
+  }
+
+  private def equateHashes(x: Hash, y: Hash) = {
+    if (x.data.length != y.data.length) Never
+    else if (x.getClass != y.getClass) Never
+    else
+      ((Always: When[EVMConstraints]) /: (x.data zip y.data)) {
+        case (oldExpr, (x1, y1)) => oldExpr & implies(x1 === y1)
+      }
   }
 
   object LinearClausePlusConstant {
@@ -89,14 +100,15 @@ case class EVMConstraints(linearConstraints: NotEqualsConstraintWrapper[Attacker
         Some((clause1 - clause2, Range(ClosedBound(const2 - const1), ClosedBound(const2 - const1))))
       case _ => None
     }
-    def normaliseNots(x: EVMData): EVMData = x match {
-      case Not(LessThan(a, b)) => GreaterOrEqual(a, b)
-      case Not(GreaterThan(a, b)) => LessOrEqual(a, b)
-      case Not(LessOrEqual(a, b)) => GreaterThan(a, b)
-      case Not(GreaterOrEqual(a, b)) => LessThan(a, b)
-      case Not(Not(a)) => normaliseNots(a)
-      case _ => x
-    }
+  }
+
+  private def normaliseNots(x: EVMData): EVMData = x match {
+    case Not(LessThan(a, b)) => GreaterOrEqual(a, b)
+    case Not(GreaterThan(a, b)) => LessOrEqual(a, b)
+    case Not(LessOrEqual(a, b)) => GreaterThan(a, b)
+    case Not(GreaterOrEqual(a, b)) => LessThan(a, b)
+    case Not(Not(a)) => normaliseNots(a)
+    case _ => x
   }
 
   object LinearNonEquality {
@@ -107,12 +119,21 @@ case class EVMConstraints(linearConstraints: NotEqualsConstraintWrapper[Attacker
     }
   }
 
-  object HashDerived {
-    def unapply(x: EVMData): Boolean = x match {
-      case _: Hash => true
-      case AddExpr(HashDerived(), _: Constant) => true
-      case MulExpr(_: Constant, HashDerived()) => true
-      case _ => false
+  object HashClause {
+    def unapply(x: EVMData): Option[(LinearClause[Hash], Rational)] = x match {
+      case AddExpr(HashClause(clause1, const1), HashClause(clause2, const2)) =>
+        Some((clause1 + clause2, const1 + const2))
+      case SubExpr(HashClause(clause1, const1), HashClause(clause2, const2)) =>
+        Some((clause1 - clause2, const1 - const2))
+      case MulExpr(HashClause(clause, const), Constant(n)) =>
+        Some((clause * n, const * n))
+      case MulExpr(Constant(n), HashClause(clause, const)) =>
+        Some((clause * n, const * n))
+      case DivExpr(HashClause(clause, const), Constant(n)) =>
+        Some((clause / n, const / n))
+      case Constant(n) => Some(LinearClause[Hash](), n)
+      case x: Hash => Some(LinearClause[Hash](x -> Rational.One), 0)
+      case _ => None
     }
   }
 
