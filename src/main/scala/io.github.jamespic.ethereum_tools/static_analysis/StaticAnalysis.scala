@@ -19,7 +19,7 @@ object StaticAnalysis {
 
   def analyseContract[T](address: BigInt, contracts: Map[EVMData, Contract], listener: StateListener[T]): Iterable[(Interest[T], FinishedState)] = {
     val visitedExecutionStates = MSet.empty[ExecutionState]
-    val startingState = attackState(address, contracts, 0, maxCalls = 3)
+    val startingState = attackState(address, contracts, 0, maxCalls = 2)
 
     var pendingStates: Iterable[(StateListener[T], ExecutionState)] = Seq(
       (listener(startingState), startingState)

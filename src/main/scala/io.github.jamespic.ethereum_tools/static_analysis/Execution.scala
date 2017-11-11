@@ -34,7 +34,7 @@ object Execution {
   }
 
   case class Context(constraints: EVMConstraints = EVMConstraints(),
-                     maxCalls: Int = 3,
+                     maxCalls: Int = 2,
                      maxLoopSize: Int = 2,
                      callCount: Int = 0,
                      timestamp: Long = System.currentTimeMillis() / 1000,

@@ -23,11 +23,14 @@ case class EVMConstraints(linearConstraints: NotEqualsConstraintWrapper[Attacker
     case Equals(DefenderControlled()|Constant(_), AttackerControlledAddress) => Never
     case Equals(DefenderControlled(), Constant(_)) => Never
     case Equals(Constant(_), DefenderControlled()) => Never
+    case Equals(HashDerived(), (_: Constant)|DefenderControlled())
+         |Equals((_: Constant)|DefenderControlled(), HashDerived()) => Never
+    case Equals(a, b) if a == b => Always
     case Equals(x: Hash, y: Hash) =>
       if (x.data.length != y.data.length) Never
       else
         ((Always: When[EVMConstraints]) /: (x.data zip y.data)){
-          case (oldExpr, (x1, y1)) => oldExpr & implies(Equals(x1, y1))
+          case (oldExpr, (x1, y1)) => oldExpr & implies(x1 === y1)
         }
     case Not(x) => !implies(x)
     case AndExpr(a: Predicate, b: Predicate) => implies(a) & implies(b)
@@ -101,6 +104,15 @@ case class EVMConstraints(linearConstraints: NotEqualsConstraintWrapper[Attacker
       case Not(Equals(LinearClausePlusConstant(clause1, const1), LinearClausePlusConstant(clause2, const2))) =>
         Some((clause1 - clause2, const2 - const1))
       case _ => None
+    }
+  }
+
+  object HashDerived {
+    def unapply(x: EVMData): Boolean = x match {
+      case _: Hash => true
+      case AddExpr(HashDerived(), _: Constant) => true
+      case MulExpr(_: Constant, HashDerived()) => true
+      case _ => false
     }
   }
 

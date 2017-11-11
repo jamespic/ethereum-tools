@@ -46,6 +46,7 @@ sealed trait EVMData {
   }
   def -(that: EVMData): EVMData = (this, that) match {
     case (Constant(a), Constant(b)) => Constant(a - b)
+    case (a, b) if a == b => Constant(0)
     case (a, Constant(b)) if b == 0 => a
     case (a, Constant(b)) => a + Constant(-b)
       // Should we turn Constant(a) - b into (-b) + Constant(a) ?? Probably not common enough to be worth it

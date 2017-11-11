@@ -30,13 +30,17 @@ object LinearClause {
   }
 
   private[constraints] def normalise[T](clause: LinearClause[T], value: Rational): (LinearClause[T], Rational) = {
-    val leadTerm = clause.terms.head._2
-    clause / leadTerm -> value / leadTerm
+    clause.terms.headOption match {
+      case Some((_, leadTerm)) => clause / leadTerm -> value / leadTerm
+      case None => clause -> value
+    }
   }
 
   private[constraints] def normalise[T](clause: LinearClause[T]): LinearClause[T] = {
-    val leadTerm = clause.terms.head._2
-    clause / leadTerm
+    clause.terms.headOption match {
+      case Some((_, leadTerm)) => clause / leadTerm
+      case None => clause
+    }
   }
 }
 
