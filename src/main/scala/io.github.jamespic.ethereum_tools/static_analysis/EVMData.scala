@@ -144,7 +144,7 @@ sealed trait EVMData {
   }
 
   def clipHighBytes(byteCount: Int): EVMData = {
-    val mask = BigInt(1) << (byteCount * 8) - 1
+    val mask = (BigInt(1) << (byteCount * 8)) - 1
     this match {
       case b: BinaryConstant =>
         new BinaryConstant(b.binData.slice(b.binData.length - byteCount, b.binData.length))
@@ -163,7 +163,7 @@ sealed trait EVMData {
     case a => DivExpr(a, Constant(1 << (byteCount * 8)))
   }
   def subBytes(startBytes: Int, endBytes: Int): EVMData = {
-    val mask = BigInt(1) << ((endBytes - startBytes) * 8) - 1
+    val mask = (BigInt(1) << (endBytes - startBytes) * 8) - 1
     this match {
       case b: BinaryConstant =>
         new BinaryConstant(b.binData.slice(startBytes, endBytes - startBytes))

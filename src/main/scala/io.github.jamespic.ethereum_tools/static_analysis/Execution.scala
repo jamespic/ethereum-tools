@@ -33,6 +33,19 @@ object Execution {
     (timestamp - 1509310839249L) / 15000L + 4453849
   }
 
+  def transfer(contracts: Map[EVMData, Contract], from: EVMData, to: EVMData, balance: EVMData)= {
+    if (from == to) contracts
+    else {
+      val fromContract = contracts.getOrElse(from, Contract(Memory()))
+      val toContract = contracts.getOrElse(to, Contract(Memory()))
+      contracts ++ Map(
+        from -> fromContract.copy(value = fromContract.value - balance),
+        to -> toContract.copy(value = toContract.value - balance)
+      )
+    }
+
+  }
+
   case class Context(constraints: EVMConstraints = EVMConstraints(),
                      maxCalls: Int = 3,
                      maxLoopSize: Int = 3,
@@ -103,9 +116,7 @@ object Execution {
       case Some(victim) =>
         val attackerContract = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
         val callValue = SpentMoney(context.callCount)
-        val newContracts = contracts +
-          (targettedContract -> victim.copy(value = victim.value + callValue)) +
-          (AttackerControlledAddress -> attackerContract.copy(value = attackerContract.value - callValue))
+        val newContracts = transfer(contracts, AttackerControlledAddress, targettedContract, callValue)
         val callDataLength = CallDataLength(context.callCount)
         val newContext = context.addNonNegativityConstraint(callValue).addNonNegativityConstraint(callDataLength)
         AttackerContractState(
@@ -190,6 +201,7 @@ object Execution {
     private def incrementIP = copy(instructionPointer = instructionPointer + 1)
     private def fail = FinishedState(context, false, Memory(), contracts) :: Nil
     def nextInst = decode(code.binary, instructionPointer)
+
 
     def nextStates: Seq[ExecutionState] = {
       val inst = decode(code.binary, instructionPointer)
@@ -517,10 +529,7 @@ object Execution {
         case CALL =>
           stack match {
             case gas :: to :: value :: dataOffset :: dataLength :: returnOffset :: returnLength :: tail =>
-              val toContract = contracts.getOrElse(to, Contract(Memory()))
-              val newContracts = contracts +
-                (address -> contract.copy(value = contract.value - value)) +
-                (to -> toContract.copy(value = toContract.value + value))
+              val newContracts = transfer(contracts, address, to, value)
               val enoughMoney = context.implies((value >= 0) & (value <= contracts(address).value))
               val enoughMoneyContexts = enoughMoney match {
                 case Always => Set(context)
@@ -586,17 +595,11 @@ object Execution {
         case CALLCODE =>
           stack match {
             case gas :: to :: value :: dataOffset :: dataLength :: returnOffset :: returnLength :: tail =>
-              val toContract = contracts.getOrElse(to, Contract(Memory()))
               val callData = memory.slice(dataOffset, dataLength)
               val contractCalls: Seq[ExecutionState] = to match {
                 case AttackerControlled() =>
                   // The defender is boned at this point
-                  val newContracts = contracts +
-                    (address -> contract.copy(value = Constant(0))) +
-                    (AttackerControlledAddress -> {
-                      val attackerAccount = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
-                      attackerAccount.copy(value = attackerAccount.value + contract.value)
-                    })
+                  val newContracts = transfer(contracts, address, AttackerControlledAddress, contract.value)
                   Seq(FinishedState(
                     context, true, attackerContractReturnData(returnLength, context.callCount),newContracts
                   ))
@@ -606,6 +609,7 @@ object Execution {
                   }
                 case to if contracts contains to =>
                   // Forward to other contract
+                  val toContract = contracts.getOrElse(to, Contract(Memory()))
                   Seq(RunningState(
                     address = address,
                     contracts = contracts,
@@ -636,17 +640,11 @@ object Execution {
         case DELEGATECALL =>
           stack match {
             case gas :: to :: dataOffset :: dataLength :: returnOffset :: returnLength :: tail =>
-              val toContract = contracts.getOrElse(to, Contract(Memory()))
               val callData = memory.slice(dataOffset, dataLength)
               val contractCalls: Seq[ExecutionState] = to match {
                 case AttackerControlled() =>
                   // The defender is boned at this point
-                  val newContracts = contracts +
-                    (address -> contract.copy(value = Constant(0))) +
-                    (AttackerControlledAddress -> {
-                      val attackerAccount = contracts.getOrElse(AttackerControlledAddress, Contract(Memory()))
-                      attackerAccount.copy(value = attackerAccount.value + contract.value)
-                    })
+                  val newContracts = transfer(contracts, address, AttackerControlledAddress, contract.value)
                   Seq(FinishedState(
                     context, true, attackerContractReturnData(returnLength, context.callCount), newContracts)
                   )
@@ -656,6 +654,7 @@ object Execution {
                   }
                 case to if contracts contains to =>
                   // Forward to other contract
+                  val toContract = contracts.getOrElse(to, Contract(Memory()))
                   Seq(RunningState(
                     address = address,
                     contracts = contracts,

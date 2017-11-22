@@ -62,6 +62,7 @@ class BlockchainContracts(web3Service: Web3jService, blockNumber: Long) {
       classOf[Response[JList[String]]]
     )
     var response = request.send().getResult
+    if (response == null) response = Nil
     result ++= response
     while (response.nonEmpty) {
       val request = new Request[Any, Response[JList[String]]](
@@ -72,6 +73,7 @@ class BlockchainContracts(web3Service: Web3jService, blockNumber: Long) {
         classOf[Response[JList[String]]]
       )
       response = request.send().getResult
+      if (response == null) response = Nil
       result ++= response
     }
     result.result()
