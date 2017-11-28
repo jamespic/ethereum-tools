@@ -13,7 +13,7 @@ object AnalyseParityWallet extends App {
     )
   )
 
-  for ((interest, state) <- analyseContract(0xdeadbeefL, parityWalletContracts, listener)) {
+  for ((interest, state) <- analyseContract(0xdeadbeefL, parityWalletContracts, listener).interestingResults) {
     println(s"Interest: $interest, When:\n${state.context}")
   }
 }

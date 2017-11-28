@@ -14,7 +14,7 @@ object CliApp extends App {
   val ContractRe = "(0x[0-9a-fA-F]{40})".r
   val (contracts, address) = args match {
     case Array(ContractRe(addr)) =>
-      val blockchain = BlockchainContracts.default
+      val blockchain = BlockchainContracts.latest
       val contracts = blockchain.ContractMap()
       val address = BigInt(decodeQuantity(addr))
       (contracts, address)
@@ -26,7 +26,7 @@ object CliApp extends App {
       (contracts, address)
   }
   val listener = SentMoneyListener()
-  for ((interest, state) <- analyseContract(address, contracts, listener)) {
+  for ((interest, state) <- analyseContract(address, contracts, listener).interestingResults) {
     println(s"Interest: $interest, When:\n${state.context}")
   }
 }

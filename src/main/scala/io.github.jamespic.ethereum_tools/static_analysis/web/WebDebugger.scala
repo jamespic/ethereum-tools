@@ -1,33 +1,28 @@
-package io.github.jamespic.ethereum_tools.static_analysis
+package io.github.jamespic.ethereum_tools.static_analysis.web
 
 import java.util.concurrent.ConcurrentHashMap
-import javax.xml.bind.DatatypeConverter.parseHexBinary
 
 import akka.actor._
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.marshallers.xml.ScalaXmlSupport
-import akka.http.scaladsl.marshalling.ToEntityMarshaller
 import akka.http.scaladsl.model.Uri.Query
 import akka.http.scaladsl.model._
-import akka.http.scaladsl.server.Directives._
+import akka.http.scaladsl.server.Directives.{path, _}
 import akka.stream.ActorMaterializer
-import akka.stream.scaladsl.Flow
-import akka.util.ByteString
 import io.github.jamespic.ethereum_tools.Bytecode
 import io.github.jamespic.ethereum_tools.static_analysis.Execution._
-import org.web3j.protocol.Web3jService
+import io.github.jamespic.ethereum_tools.static_analysis._
 
-import scala.io.{Source, StdIn}
+import scala.io.StdIn
 import scala.xml.NodeSeq
-import scala.xml.dtd.DocType
 
 case class StateResult(state: ExecutionState, nextStateIds: Seq[Int])
 
-class StateCache(contracts: Map[EVMData, Contract]) {
+class StateCache {
   val stateCache = new ConcurrentHashMap[Int, ExecutionState]
   val backReferences = new ConcurrentHashMap[Int, Int]
 
-  def startDebugging(contractAddress: BigInt) = {
+  def startDebugging(contractAddress: BigInt, block: Option[Long] = None) = {
+    val contracts = BlockchainContracts.forBlock(block).ContractMap()
     val state = attackState(Constant(contractAddress), contracts, 0, maxCalls = 3)
     stateCache.put(getId(state), state)
     getId(state)
@@ -60,24 +55,14 @@ class StateCache(contracts: Map[EVMData, Contract]) {
   private def getId(state: ExecutionState) = state.hashCode.abs
 }
 
-class WebDebugger(contracts: Map[EVMData, Contract]) {
-  implicit val system = ActorSystem("my-system")
-  implicit val materializer = ActorMaterializer()
-  // needed for the future flatMap/onComplete in the end
-  implicit val executionContext = system.dispatcher
-  implicit val htmlMarshaller: ToEntityMarshaller[NodeSeq] =
-    ScalaXmlSupport.nodeSeqMarshaller(MediaTypes.`text/html`).map(
-      entity => entity.transformDataBytes(Flow.fromFunction(bytes =>
-        ByteString(DocType("html").toString) ++ bytes
-      ))
-    )
-  val cache = new StateCache(contracts)
+class WebDebugger {
+  val cache = new StateCache
 
   val route =
-    path("contract" / Segment) {contractId =>
+    (path("contract" / Segment) & parameterMap) {(contractId, params) =>
       val hexContractId = if (contractId.startsWith("0x")) contractId.substring(2) else contractId
       val contract = BigInt(hexContractId, 16)
-      val startState = cache.startDebugging(contract)
+      val startState = cache.startDebugging(contract, params.get("blockNumber").map(_.toLong))
       redirect(Uri(path = getPath(startState)), StatusCodes.Found)
     } ~
     (path("nextChoice"/ IntNumber) & parameterMap) {(stateId, params) =>
@@ -306,26 +291,20 @@ class WebDebugger(contracts: Map[EVMData, Contract]) {
   private def nextChoice(state: Int) = {
     Uri.Path / "nextChoice" / state.toString
   }
-
-  def run() = {
-    val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
-    println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
-    StdIn.readLine() // let it run until user presses return
-    bindingFuture
-      .flatMap(_.unbind()) // trigger unbinding from the port
-      .onComplete(_ => system.terminate()) // and shutdown when done
-  }
 }
 
 object WebDebugger extends App {
-  val contracts = this.args match {
-    case Array("parityWallet") => parityWalletContracts
-    case Array(filename) =>
-      val contractCode = parseHexBinary(Source.fromFile(filename).getLines().mkString(""))
-      val simpleContract = Contract(Memory(contractCode), Map.empty, Constant(0xfeed))
-      Map[EVMData, Contract](Constant(0xfeed) -> simpleContract)
-    case _ => BlockchainContracts.default.ContractMap()
-  }
+  implicit val system = ActorSystem("my-system")
+  implicit val materializer = ActorMaterializer()
+  // needed for the future flatMap/onComplete in the end
+  implicit val executionContext = system.dispatcher
 
-  new WebDebugger(contracts).run()
+  val debugger = new WebDebugger
+
+  val bindingFuture = Http().bindAndHandle(debugger.route, "localhost", 8080)
+  println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
+  StdIn.readLine() // let it run until user presses return
+  bindingFuture
+    .flatMap(_.unbind()) // trigger unbinding from the port
+    .onComplete(_ => system.terminate()) // and shutdown when done
 }

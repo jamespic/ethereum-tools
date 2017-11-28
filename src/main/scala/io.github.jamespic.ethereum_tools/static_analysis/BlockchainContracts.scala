@@ -15,10 +15,19 @@ import scala.collection.generic.{CanBuildFrom, MapFactory}
 import scala.collection.mutable
 
 object BlockchainContracts {
-  def default = {
+  def latest = {
     val web3jService = new HttpService()
     val web3 = Web3j.build(web3jService)
     new BlockchainContracts(web3jService, web3.ethBlockNumber().send().getBlockNumber.longValue)
+  }
+  def forBlock(blockNumber: Long): BlockchainContracts = {
+    val web3jService = new HttpService()
+    val web3 = Web3j.build(web3jService)
+    new BlockchainContracts(web3jService, blockNumber)
+  }
+  def forBlock(blockNumber: Option[Long]): BlockchainContracts = blockNumber match {
+    case Some(n) => forBlock(n)
+    case None => latest
   }
 }
 

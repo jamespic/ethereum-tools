@@ -144,14 +144,13 @@ sealed trait EVMData {
   }
 
   def clipHighBytes(byteCount: Int): EVMData = {
-    val mask = (BigInt(1) << (byteCount * 8)) - 1
     this match {
       case b: BinaryConstant =>
         new BinaryConstant(b.binData.slice(b.binData.length - byteCount, b.binData.length))
       case CallData(start, length, callId) => CallData(start + length - byteCount, byteCount, callId)
-      case Constant(n) => Constant(u(n) & mask)
+      case Constant(n) => Constant(u(n) & (BigInt(1) << (byteCount * 8)) - 1)
       case AttackerControlledAddress if byteCount == 20 => AttackerControlledAddress
-      case a => AndExpr(a, Constant(mask))
+      case a => Uint(a, byteCount * 8)
     }
   }
   def clipLowBytes(byteCount: Int): EVMData = this match {
@@ -160,7 +159,7 @@ sealed trait EVMData {
     case CallData(start, Constant(length), callId) => CallData(start, (length - byteCount) max 0, callId)
     case CallData(start, length, callId) => CallData(start, length - byteCount, callId)
     case Constant(n) => Constant(u(n) >> (byteCount * 8))
-    case a => DivExpr(a, Constant(1 << (byteCount * 8)))
+    case a => DivExpr(a, Constant(BigInt(1) << (byteCount * 8)))
   }
   def subBytes(startBytes: Int, endBytes: Int): EVMData = {
     val mask = (BigInt(1) << (endBytes - startBytes) * 8) - 1
@@ -174,7 +173,7 @@ sealed trait EVMData {
         }
         CallData(start + startBytes, newLength, callId)
       case Constant(n) => Constant((u(n) >> ((32 - endBytes) * 8)) & mask)
-      case a => AndExpr(DivExpr(a, Constant(1 << ((32 - endBytes) * 8))), mask)
+      case a => AndExpr(DivExpr(a, Constant(BigInt(1) << ((32 - endBytes) * 8))), mask)
     }
   }
   def isConstant = this match {
@@ -198,6 +197,7 @@ case object AttackerControlled extends AttackerControlled with HashMemo {
     case BinExpr(a, AttackerControlled()) => true
     case Not(AttackerControlled()) => true
     case BitNotExpr(AttackerControlled()) => true
+    case Cast(AttackerControlled(), _) => true
     case _ => false
   }
 }
@@ -208,10 +208,7 @@ trait AttackerControlledMemory
   val length: EVMData
   val callId: Int
 
-  override def toString = callId match {
-    case 0 => s"${getClass.getSimpleName}($start, $length)"
-    case a => s"${getClass.getSimpleName}_${a}($start, $length)"
-  }
+  override def toString = s"${getClass.getSimpleName}_${callId}($start, $length)"
 
   def getRange(rStart: EVMData, rLength: EVMData) = {
     val sliced = slice(rStart, rLength)
@@ -254,7 +251,12 @@ trait AttackerControlledMemory
 
 case class CallData(start: EVMData = 0,
                     length: EVMData = CallDataLength(0),
-                    callId: Int = 0) extends AttackerControlledMemory with HashMemo
+                    callId: Int = 0) extends AttackerControlledMemory with HashMemo {
+  override def toString = {
+    if (start == Constant(0) && length == Constant(4)) s"Signature_$callId"
+    else super.toString
+  }
+}
 
 case class CallDataLength(callId: Int) extends AttackerControlled with HashMemo
 case object AttackerControlledAddress extends AttackerControlled with HashMemo
@@ -303,6 +305,15 @@ case class XorExpr(a: EVMData, b: EVMData) extends Str(s"($a ^ $b)") with BinExp
 case class CurvePoint(a: EVMData, b: EVMData) extends BinExpr with HashMemo
 case class BitNotExpr(a: EVMData) extends Str(s"~$a") with EVMData with HashMemo
 
+object Cast {
+  def unapply(c: Cast) = Some((c.x, c.bits))
+}
+trait Cast extends EVMData {
+  val x: EVMData
+  val bits: Int
+}
+case class Uint(x: EVMData, bits: Int) extends Str(s"uint$bits($x)") with Cast with HashMemo
+case class Sint(x: EVMData, bits: Int) extends Str(s"int$bits($x)") with Cast with HashMemo
 
 sealed trait Predicate extends EVMData
 case class Equals(a: EVMData, b: EVMData) extends Str(s"($a == $b)") with BinExpr with Predicate with HashMemo

@@ -16,7 +16,8 @@ object Execution {
           case Never => Nil
         }
     }
-    if (results.nonEmpty) results.toSeq else Seq((Constant(0), context))
+    val zeroOption = if (results.isEmpty || AttackerControlled.unapply(key)) Seq((Constant(0), context)) else Nil
+    results.toSeq ++ zeroOption
   }
 
 
@@ -250,7 +251,10 @@ object Execution {
           }
         case SIGNEXTEND =>
           simpleInstruction {
-            case a :: b :: tail => b :: tail // Yes, this is obviously wrong, but let's find out if that matters
+            case Constant(n) :: Constant(b) :: tail => Constant(b) :: tail // I can't be arsed with this calculation
+            case Constant(n) :: Cast(b, _) :: tail => Sint(b, n.toInt) :: tail
+            case Constant(n) :: b :: tail => Sint(b, n.toInt) :: tail
+            case a :: b :: tail => b :: tail
           }
         case LT =>
           simpleInstruction {

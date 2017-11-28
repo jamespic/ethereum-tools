@@ -21,6 +21,6 @@ case class SentMoneyListener(balance: EVMData = Constant(0),
     case Never => NotInteresting
     case Always => Interesting(s"Balance $balance is positive")
     case Sometimes(whenYes, _) =>
-      Interesting(s"Balance $balance is positive in the following contexts:\n${whenYes.mkString("\n\n\n~~~~~~~~~~\n\n")}")
+      Interesting(s"Balance $balance is positive")
   }
 }
