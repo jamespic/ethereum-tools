@@ -22,7 +22,7 @@ class StateCache {
   val backReferences = new ConcurrentHashMap[Int, Int]
 
   def startDebugging(contractAddress: BigInt, block: Option[Long] = None) = {
-    val contracts = BlockchainContracts.forBlock(block).ContractMap()
+    val contracts = LazyBlockchainContracts.forBlock(block).ContractMap()
     val state = attackState(Constant(contractAddress), contracts, 0, maxCalls = 3)
     stateCache.put(getId(state), state)
     getId(state)

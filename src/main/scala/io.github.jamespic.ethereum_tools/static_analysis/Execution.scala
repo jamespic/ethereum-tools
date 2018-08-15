@@ -17,7 +17,8 @@ object Execution {
         }
     }
     val zeroOption = if (results.isEmpty || AttackerControlled.unapply(key)) Seq((Constant(0), context)) else Nil
-    results.toSeq ++ zeroOption
+    val exactOption = map.get(key).map(v => (v, context)).toSeq
+    (results.toSeq ++ zeroOption ++ exactOption).toSet[(EVMData, Context)].toSeq
   }
 
 

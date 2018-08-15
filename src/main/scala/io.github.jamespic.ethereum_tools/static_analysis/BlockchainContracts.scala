@@ -34,6 +34,7 @@ object BlockchainContracts {
 class BlockchainContracts(web3Service: Web3jService, blockNumber: Long) {
   var web3 = Web3j.build(web3Service)
   var cache = MMap.empty[EVMData, Option[Contract]]
+  val block = new DefaultBlockParameterNumber(blockNumber)
 
   private def lookup(address: EVMData): Option[Contract] = {
     cache.get(address) match {
@@ -41,17 +42,12 @@ class BlockchainContracts(web3Service: Web3jService, blockNumber: Long) {
       case None =>
         val result = address match {
           case Constant(n) =>
-            val block = new DefaultBlockParameterNumber(blockNumber)
             val address = f"0x$n%040x"
             val codeString = web3.ethGetCode(address, block).send().getCode
             val code = if (codeString != null) parseHexBinary(codeString.substring(2)) else new Array[Byte](0)
             val balance = web3.ethGetBalance(address, block).send().getBalance
             val nonce = web3.ethGetTransactionCount(address, block).send().getTransactionCount.intValue()
-            val storage = (for (key <- getStorageKeys(address, block)) yield {
-              val keyBigInt = decodeQuantity(key)
-              val valueBigInt = decodeQuantity(web3.ethGetStorageAt(address, keyBigInt, block).send().getData)
-              Constant(keyBigInt) -> Constant(valueBigInt)
-            }).toMap[EVMData, EVMData]
+            val storage = getStorageMap(address)
             Some(Contract(BinaryConstant(code), storage, Constant(balance), nonce))
           case _ => None
         }
@@ -59,6 +55,14 @@ class BlockchainContracts(web3Service: Web3jService, blockNumber: Long) {
         result
     }
 
+  }
+
+  protected def getStorageMap(address: String): Map[EVMData, EVMData] = {
+    (for (key <- getStorageKeys(address, block)) yield {
+      val keyBigInt = decodeQuantity(key)
+      val valueBigInt = decodeQuantity(web3.ethGetStorageAt(address, keyBigInt, block).send().getData)
+      Constant(keyBigInt) -> Constant(valueBigInt)
+    }).toMap[EVMData, EVMData]
   }
 
   private def getStorageKeys(address: String, block: DefaultBlockParameter) = {
@@ -97,7 +101,7 @@ class BlockchainContracts(web3Service: Web3jService, blockNumber: Long) {
     }
     override def get(key: EVMData): Option[Contract] =
       overridden.get(key).orElse(lookup(key)).filter(x => !tombstones.contains(x))
-    override def iterator: Iterator[(EVMData, Contract)] = overridden.iterator
+    override def iterator: Iterator[(EVMData, Contract)] = (overridden -- tombstones).iterator
     override def -(key: EVMData): Map[EVMData, Contract] = new ContractMap(overridden - key, tombstones + key)
     override lazy val hashCode = super.hashCode
   }
@@ -123,4 +127,53 @@ class BlockchainContracts(web3Service: Web3jService, blockNumber: Long) {
     }
   }
 
+}
+
+object LazyBlockchainContracts {
+  def latest = {
+    val web3jService = new HttpService()
+    val web3 = Web3j.build(web3jService)
+    new LazyBlockchainContracts(web3jService, web3.ethBlockNumber().send().getBlockNumber.longValue)
+  }
+  def forBlock(blockNumber: Long): BlockchainContracts = {
+    val web3jService = new HttpService()
+    val web3 = Web3j.build(web3jService)
+    new LazyBlockchainContracts(web3jService, blockNumber)
+  }
+  def forBlock(blockNumber: Option[Long]): BlockchainContracts = blockNumber match {
+    case Some(n) => forBlock(n)
+    case None => latest
+  }
+}
+
+class LazyBlockchainContracts(web3Service: Web3jService, blockNumber: Long) extends BlockchainContracts(web3Service, blockNumber) {
+  val storageCache = MMap.empty[(String, BigInt), EVMData]
+  protected override def getStorageMap(address: String): Map[EVMData, EVMData] = {
+    val underlying = (for (key <- 0 to 64) yield {
+      val keyBigInt = java.math.BigInteger.valueOf(key)
+      val valueBigInt = decodeQuantity(web3.ethGetStorageAt(address, keyBigInt, block).send().getData)
+      Constant(keyBigInt) -> Constant(valueBigInt)
+    }).toMap[EVMData, EVMData].filter(_._2 != Constant(0))
+    return new LazyStorageMap(address, underlying, Set.empty[EVMData])
+  }
+  private class LazyStorageMap(address: String, val overridden: Map[EVMData, EVMData], tombstones: Set[EVMData]) extends Map[EVMData, EVMData] {
+    override def +[B1 >: EVMData](kv: (EVMData, B1)): Map[EVMData, B1] = kv match {
+      case (k, v: EVMData) => new LazyStorageMap(address, overridden.updated(k, v), tombstones - k)
+    }
+    override def get(key: EVMData): Option[EVMData] =
+      overridden.get(key).orElse(lookup(key)).filter(x => !tombstones.contains(x))
+    override def iterator: Iterator[(EVMData, EVMData)] = (overridden -- tombstones).iterator
+    override def -(key: EVMData): Map[EVMData, EVMData] = new LazyStorageMap(address, overridden - key, tombstones + key)
+    override lazy val hashCode = super.hashCode
+    private def lookup(key: EVMData): Option[EVMData] = key match {
+      case Constant(x) =>
+        storageCache.get((address, x)).orElse {
+          val storageValue = BigInt(decodeQuantity(web3.ethGetStorageAt(address, x.bigInteger, block).send().getData))
+          val result = Constant(storageValue)
+          storageCache((address, x)) = Constant(storageValue)
+          Some(result)
+        }
+      case _ => None
+    }
+  }
 }
